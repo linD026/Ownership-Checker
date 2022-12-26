@@ -5,9 +5,9 @@ INC_PARAMS=$(INC:%=-I%)
 
 CC ?= gcc
 CFLAGS:=-g 
+CFLAGS+=-std=c11
 CFLAGS+=-Wall
 CFLAGS+=-O1
-CFLAGS+=-pthread
 
 DEBUG_FLAGS=
 ifneq ($(strip $(debug)),)
@@ -16,7 +16,7 @@ DEBUG_FLAGS+=-D'CONFIG_DEBUG'
 CFLAGS+=$(DEBUG_FLAGS)
 endif
 
-SRC:=
+SRC:=src/osc.c
 
 OBJ:=$(SRC:.c=.o)
 
@@ -40,7 +40,7 @@ endif
 	$(OSC_CC) $(CFLAGS) $(INC_PARAMS) -c $< -o $@
 
 build: $(OBJ)
-	$(OSC_CC) $(CFLAGS) -o $(BIN)
+	$(OSC_CC) $(CFLAGS) $(OBJ) -o $(BIN)
 
 clean:
 	$(OSC_RM) -f src/*.o
@@ -52,7 +52,7 @@ cscope:
 
 indent:
 	clang-format -i include/*/*.[ch]
-	clang-format -i src/*/*.[ch]
+	clang-format -i src/*.[ch]
 
 ifeq ($(quiet), 1)
 .SILENT:
