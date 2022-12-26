@@ -17,6 +17,8 @@ CFLAGS+=$(DEBUG_FLAGS)
 endif
 
 SRC:=src/osc.c
+SRC+=src/parser.c
+SRC+=src/check_ownership.c
 
 OBJ:=$(SRC:.c=.o)
 
