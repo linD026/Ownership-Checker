@@ -40,20 +40,43 @@ static __always_inline int blank(char ch)
     return 0;
 }
 
+static unsigned int
+check_ptr_type(struct object_type_struct *ot, char *buffer,
+               unsigned int buffer_offset, unsigned int size)
+{
+    unsigned int i = buffer_offset;
+
+    for (; i < size && buffer[i] != '\n'; i++) {
+        char ch = buffer[i];
+        if (blank(ch))
+            continue;
+        switch (ch) {
+            case '*':
+                ot->type |= OBJECT_TYPE_PTR;
+            default:
+                return i;
+        }
+    }
+    return i;
+}
+
 static int decode_type(struct object_type_struct *ot, char *buffer,
-                       unsigned int buffer_offset, unsigned int size)
+                       unsigned int *buffer_offset, unsigned int size)
 {
     pr_debug("line: %s\n", buffer);
     for (unsigned int i = 0; i < nr_type_table; i++) {
-        if (type_table[i].len > size - buffer_offset)
+        if (type_table[i].len > size - *buffer_offset)
             continue;
-        if (strncmp(&buffer[buffer_offset], type_table[i].type,
+        if (strncmp(&buffer[*buffer_offset], type_table[i].type,
                     type_table[i].len) == 0) {
             ot->type = type_table[i].flag;
+            /* Now check the pointer type */
+            *buffer_offset += type_table[i].len;
+            *buffer_offset = check_ptr_type(ot, buffer, *buffer_offset, size);
             return 1;
         }
     }
-    WARN_ON(1, "unkown type:%s", &buffer[buffer_offset]);
+    WARN_ON(1, "unkown type:%s", &buffer[*buffer_offset]);
     return 0;
 }
 
@@ -68,7 +91,7 @@ static struct object_type_struct *decode_file_scope_type(char *buffer,
         ch = buffer[i];
         if (blank(ch))
             continue;
-        if (decode_type(ot, buffer, i, size))
+        if (decode_type(ot, buffer, &i, size))
             return ot;
     }
     /* Unkown type, release the ot. */
@@ -89,7 +112,8 @@ static int decode(struct scan_file_control *sfc, char *buffer,
         /* For function and variable, we can get the type first. */
         struct object_type_struct *ot = decode_file_scope_type(buffer, size);
 
-        pr_debug("type: %s\n", obj_type_name(ot));
+        pr_debug("type: %s %s\n", obj_type_name(ot),
+                                  obj_ptr_type(ot) ? "*" : "");
         //TODO
         free(ot);
     }

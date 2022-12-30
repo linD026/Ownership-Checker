@@ -63,6 +63,11 @@ static inline char *obj_type_name(struct object_type_struct *ot)
     return (char *)(ot->type & ~OBJECT_TYPE_STRUCT);
 }
 
+static inline int obj_ptr_type(struct object_type_struct *ot)
+{
+    return (ot->type & OBJECT_TYPE_PTR) ? 1 : 0;
+}
+
 char *make_obj_struct_name(struct object_type_struct *ot, char *src,
                            unsigned int size);
 void clear_obj_struct_name(struct object_type_struct *ot);

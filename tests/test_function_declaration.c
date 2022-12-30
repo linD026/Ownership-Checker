@@ -1,2 +1,2 @@
-int func();
-void func2();
+int func(int a, int *b);
+void *func2(int b, int b);
