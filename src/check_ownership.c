@@ -1,5 +1,5 @@
-#include <osc/object_type.h>
+#include <osc/parser.h>
 
-int check_ownership(struct obj_t *obj)
+int check_ownership(void)
 {
 }

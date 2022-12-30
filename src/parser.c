@@ -1,5 +1,4 @@
 #include <osc/parser.h>
-#include <osc/object_type.h>
 #include <osc/compiler.h>
 #include <osc/print.h>
 #include <osc/debug.h>
@@ -18,14 +17,30 @@ enum decode_type {
     nr_decode_type,
 };
 
+#define MAX_BUFFER_LEN 128
+
 struct scan_file_control {
     struct file_info *fi;
+    char buffer[MAX_BUFFER_LEN];
+    unsigned int size;
+    unsigned int offset;
     unsigned int scope_type;
 };
 
-#define MAX_BUFFER_LEN 128
+#define for_each_line(sfc)    \
+    while ((sfc)->offset = 0, \
+           fgets((sfc)->buffer, (sfc)->size, (sfc)->fi->file) != NULL)
 
-#define for_each_line(file, buf, size) while (fgets(buf, size, file) != NULL)
+#define next_line(sfc)                                                \
+    ({                                                                \
+        (sfc)->offset = 0;                                            \
+        (fgets((sfc)->buffer, (sfc)->size, (sfc)->fi->file) != NULL); \
+    })
+
+#define buffer_for_each(sfc)                                                  \
+    for (char ch = (sfc)->buffer[(sfc)->offset];                              \
+         (sfc)->offset < (sfc)->size && (sfc)->buffer[(sfc)->offset] != '\n'; \
+         (sfc)->offset += 1, ch = (sfc)->buffer[(sfc)->offset])
 
 static __always_inline int blank(char ch)
 {
@@ -40,67 +55,68 @@ static __always_inline int blank(char ch)
     return 0;
 }
 
-static unsigned int
-check_ptr_type(struct object_type_struct *ot, char *buffer,
-               unsigned int buffer_offset, unsigned int size)
+static int check_ptr_type(struct scan_file_control *sfc,
+                          struct object_type_struct *ot)
 {
-    unsigned int i = buffer_offset;
-
-    for (; i < size && buffer[i] != '\n'; i++) {
-        char ch = buffer[i];
+again:
+    buffer_for_each (sfc) {
         if (blank(ch))
             continue;
         switch (ch) {
-            case '*':
-                ot->type |= OBJECT_TYPE_PTR;
-            default:
-                return i;
+        case '*':
+            ot->type |= OBJECT_TYPE_PTR;
+        default:
+            /* not the pointer symbol, get back one char. */
+            sfc->offset--;
+            return 0;
         }
     }
-    return i;
+    next_line(sfc);
+    goto again;
 }
 
-static int decode_type(struct object_type_struct *ot, char *buffer,
-                       unsigned int *buffer_offset, unsigned int size)
+static int decode_type(struct scan_file_control *sfc,
+                       struct object_type_struct *ot)
 {
-    pr_debug("line: %s\n", buffer);
+    pr_debug("line: %s\n", sfc->buffer);
     for (unsigned int i = 0; i < nr_type_table; i++) {
-        if (type_table[i].len > size - *buffer_offset)
+        if (type_table[i].len > sfc->size - sfc->offset)
             continue;
-        if (strncmp(&buffer[*buffer_offset], type_table[i].type,
+        pr_debug("debug: buf:%s", &sfc->buffer[sfc->offset]);
+        if (strncmp(&sfc->buffer[sfc->offset], type_table[i].type,
                     type_table[i].len) == 0) {
             ot->type = type_table[i].flag;
             /* Now check the pointer type */
-            *buffer_offset += type_table[i].len;
-            *buffer_offset = check_ptr_type(ot, buffer, *buffer_offset, size);
+            sfc->offset += type_table[i].len;
+            check_ptr_type(sfc, ot);
             return 1;
         }
     }
-    WARN_ON(1, "unkown type:%s", &buffer[*buffer_offset]);
+    WARN_ON(1, "unkown type:%s", &sfc->buffer[sfc->offset]);
     return 0;
 }
 
-static struct object_type_struct *decode_file_scope_type(char *buffer,
-                                                         unsigned int size)
+static int decode_file_scope_object_type(struct scan_file_control *sfc,
+                                         struct object_struct *obj)
 {
-    char ch;
-    struct object_type_struct *ot = malloc(sizeof(struct object_type_struct));
-    BUG_ON(!ot, "malloc");
-
-    for (unsigned int i = 0; i < size && buffer[i] != '\n'; i++) {
-        ch = buffer[i];
+again:
+    buffer_for_each (sfc) {
         if (blank(ch))
             continue;
-        if (decode_type(ot, buffer, &i, size))
-            return ot;
+        if (decode_type(sfc, &obj->ot))
+            return 0;
     }
-    /* Unkown type, release the ot. */
-    free(ot);
-    return NULL;
+    next_line(sfc);
+    goto again;
 }
 
-static int decode(struct scan_file_control *sfc, char *buffer,
-                  unsigned int size)
+static int decode_file_scope_object(struct scan_file_control *sfc,
+                                    struct object_struct *obj)
+{
+    return 1;
+}
+
+static int decode(struct scan_file_control *sfc)
 {
     /*
      * If current scope type is file, two cases here:
@@ -109,13 +125,19 @@ static int decode(struct scan_file_control *sfc, char *buffer,
      * marco: TODO
      */
     if (sfc->scope_type == st_file_scope) {
-        /* For function and variable, we can get the type first. */
-        struct object_type_struct *ot = decode_file_scope_type(buffer, size);
+        struct object_struct *obj = malloc(sizeof(struct object_type_struct));
+        BUG_ON(!obj, "malloc");
+        obj->name = NULL;
+        obj->ot.type = 0;
 
-        pr_debug("type: %s %s\n", obj_type_name(ot),
-                                  obj_ptr_type(ot) ? "*" : "");
+        /* For function and variable, we can get the type first. */
+        decode_file_scope_object_type(sfc, obj);
+        decode_file_scope_object(sfc, obj);
+
+        pr_debug("type: %s %s\n", obj_type_name(&obj->ot),
+                 obj_ptr_type(&obj->ot) ? "*" : "");
         //TODO
-        free(ot);
+        free(obj);
     }
 
     return 0;
@@ -123,11 +145,8 @@ static int decode(struct scan_file_control *sfc, char *buffer,
 
 static void scan_file(struct scan_file_control *sfc)
 {
-    char buffer[MAX_BUFFER_LEN];
-
-    for_each_line(sfc->fi->file, buffer, MAX_BUFFER_LEN)
-    {
-        int type = decode(sfc, buffer, MAX_BUFFER_LEN);
+    for_each_line (sfc) {
+        int type = decode(sfc);
     }
 }
 
@@ -135,6 +154,8 @@ int parser(struct file_info *fi)
 {
     struct scan_file_control sfc = {
         .fi = fi,
+        .size = MAX_BUFFER_LEN,
+        .offset = 0,
         /* Initialize the scope to file scope. */
         .scope_type = st_file_scope,
     };
@@ -143,4 +164,6 @@ int parser(struct file_info *fi)
     BUG_ON(!fi->file, "fopen");
     scan_file(&sfc);
     fclose(fi->file);
+
+    return 0;
 }

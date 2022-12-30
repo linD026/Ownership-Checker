@@ -98,3 +98,5 @@ ForEachMacros:
   - 'list_for_each'
   - 'list_for_each_from'
   - 'list_for_each_safe'
+  - 'for_each_line'
+  - 'buffer_for_each'
