@@ -38,6 +38,6 @@ static __always_inline void dump_stack(void)
             pr_err("WARN ON:" #cond ", " fmt "\n", ##__VA_ARGS__); \
     } while (0)
 
-#define pr_debug(fmt, ...) pr_info(fmt, ##__VA_ARGS__)
+#define pr_debug(fmt, ...) pr_info("DEBUG: " fmt, ##__VA_ARGS__)
 
 #endif /* __OSC_DEBUG_H__ */

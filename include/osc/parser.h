@@ -91,20 +91,51 @@ static inline int obj_type_same(struct object_type_struct *a,
     return a->type == b->type;
 }
 
+struct object_struct *object_alloc(void);
+
 /* Object and file info */
 
 #define MAX_NR_NAME 80
+
+struct object_struct {
+    char name[MAX_NR_NAME];
+    /* file scope object */
+    /* If it is the function this is return type. */
+    struct object_type_struct ot;
+    /* function/structure/variable declaration type */
+    unsigned int fso_type;
+    union {
+        struct list_head func_args_node;
+        struct list_head func_args_head;
+
+        struct list_head scope_head;
+    };
+    /* Could be function or variable type */
+    struct list_head node;
+};
+
+enum file_scope_object_type {
+    fso_unkown,
+    fso_function,
+    /* EX: void func(void); */
+    fso_function_declaration,
+    /* EX: void func(void) { ... } */
+    fso_function_definition,
+    /* EX: void func (int a) { ... } */
+    fso_function_args,
+    /* EX: struct name { ... } */
+    fso_structure_definition,
+    /* EX: struct name var = ...; */
+    fso_variable_declaration,
+    nr_file_scope_object_type,
+};
 
 struct file_info {
     char name[MAX_NR_NAME];
     /* For osc data struct in src/osc.c */
     struct list_head node;
+    struct list_head func_head;
     FILE *file;
-};
-
-struct object_struct {
-    struct object_type_struct ot;
-    char *name;
 };
 
 int parser(struct file_info *fi);

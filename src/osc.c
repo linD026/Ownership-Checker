@@ -24,6 +24,7 @@ static void create_file(struct osc_data *restrict data, char *restrict argv)
     strncpy(fi->name, argv, strlen(argv));
     fi->name[MAX_NR_NAME - 1] = '\0';
     list_init(&fi->node);
+    list_init(&fi->func_head);
     fi->file = NULL;
     print("Analyze file: %s\n", fi->name);
 

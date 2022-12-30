@@ -1,4 +1,5 @@
 #include <osc/parser.h>
+#include <osc/list.h>
 #include <osc/debug.h>
 #include <stdlib.h>
 #include <string.h>
@@ -40,4 +41,15 @@ void clear_obj_struct_name(struct object_type_struct *ot)
         return;
     free(obj_type_name(ot));
     ot->type = 0;
+}
+
+struct object_struct *object_alloc(void)
+{
+    struct object_struct *obj = malloc(sizeof(struct object_struct));
+    BUG_ON(!obj, "malloc");
+    memset(obj->name, '\0', MAX_NR_NAME);
+    obj->fso_type = fso_unkown;
+    obj->ot.type = 0;
+    list_init(&obj->func_args_node);
+    return obj;
 }
