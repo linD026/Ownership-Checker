@@ -196,7 +196,8 @@ static inline char *dump_fso_type(struct object_struct *obj)
 
 #define dump_object(obj, fmt, ...)                             \
     do {                                                       \
-        pr_debug("==== dump object ====\n"                     \
+        pr_debug("\n"                                          \
+                 "==== dump object ====\n"                     \
                  "type; %s %s %s\n"                            \
                  "name: %s\n"                                  \
                  "fso_type: %s\n"                              \

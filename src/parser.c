@@ -97,8 +97,11 @@ static __always_inline int check_attr_type(struct scan_file_control *sfc,
             continue;
         if (strncmp(&sfc->buffer[sfc->offset], var_attr_table[i].type,
                     var_attr_table[i].len) == 0) {
+            WARN_ON(ot->attr_type & var_attr_table[i].flag,
+                    "duplicate attr type:%s", var_attr_table[i].type);
             ot->attr_type |= var_attr_table[i].flag;
             sfc->offset += var_attr_table[i].len;
+            return -EAGAIN;
         }
     }
     return 0;
