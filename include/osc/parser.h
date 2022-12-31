@@ -20,10 +20,19 @@
  *  };
  */
 struct object_type_struct {
+    // object type (int, void, etc)
     union {
         char *name;
         uintptr_t type;
     };
+    // attribute type (__brw, __mut, etc)
+    unsigned int attr_type;
+};
+
+struct type_info {
+    char *type;
+    unsigned int len;
+    unsigned int flag;
 };
 
 #define OBJECT_TYPE_STRUCT 0x0001U
@@ -34,17 +43,11 @@ struct object_type_struct {
 #define OBJET_TYPE_EXCLUDE_PTR_MASK \
     (OBJECT_TYPE_STRUCT | OBJECT_TYPE_INT | OBJECT_TYPE_VOID)
 
-struct type_info {
-    char *type;
-    unsigned int len;
-    unsigned int flag;
-};
-
 enum {
     tt_struct,
     tt_int,
     tt_void,
-    nr_type_table,
+    nr_object_type,
 };
 
 extern const struct type_info type_table[];
@@ -93,6 +96,16 @@ static inline int obj_type_same(struct object_type_struct *a,
 
 struct object_struct *object_alloc(void);
 
+/* variable attribut */
+
+#define VAR_ATTR_DEFAULT 0x0000U
+#define VAR_ATTR_BRW 0x0001U
+#define VAR_ATTR_MUT 0x0002U
+#define VAR_ATTR_BRW_ONCE (VAR_ATTR_BRW | VAR_ATTR_MUT)
+
+#define nr_var_attr 2
+extern const struct type_info var_attr_table[];
+
 /* Object and file info */
 
 #define MAX_NR_NAME 80
@@ -139,5 +152,60 @@ struct file_info {
 };
 
 int parser(struct file_info *fi);
+
+/* dump info */
+
+static inline char *dump_attr(struct object_struct *obj)
+{
+    struct object_type_struct *ot = &obj->ot;
+
+    switch (ot->attr_type) {
+    case VAR_ATTR_DEFAULT:
+        return "";
+    case VAR_ATTR_BRW:
+        return "__brw";
+    case VAR_ATTR_MUT:
+        return "__mut";
+    case VAR_ATTR_BRW_ONCE:
+        return "__mut __brw";
+    default:
+        WARN_ON(1, "unkown attr type:%u", ot->attr_type);
+    }
+    return NULL;
+}
+
+static inline char *dump_fso_type(struct object_struct *obj)
+{
+    switch (obj->fso_type) {
+#define SWITCH_FSO_ENTRY(type) \
+    case type:                 \
+        return #type;
+        SWITCH_FSO_ENTRY(fso_unkown)
+        SWITCH_FSO_ENTRY(fso_function)
+        SWITCH_FSO_ENTRY(fso_function_declaration)
+        SWITCH_FSO_ENTRY(fso_function_definition)
+        SWITCH_FSO_ENTRY(fso_function_args)
+        SWITCH_FSO_ENTRY(fso_structure_definition)
+        SWITCH_FSO_ENTRY(fso_variable_declaration)
+#undef SWITCH_FSO_ENTRY
+    default:
+        WARN_ON(1, "unkown attr type:%u", obj->fso_type);
+    }
+    return NULL;
+}
+
+#define dump_object(obj, fmt, ...)                             \
+    do {                                                       \
+        pr_debug("==== dump object ====\n"                     \
+                 "type; %s %s %s\n"                            \
+                 "name: %s\n"                                  \
+                 "fso_type: %s\n"                              \
+                 "---------------------\n"                     \
+                 "note: " fmt "\n"                             \
+                 "=====================\n",                    \
+                 obj_type_name(&obj->ot), dump_attr(obj),      \
+                 obj_ptr_type(&obj->ot) ? "*" : "", obj->name, \
+                 dump_fso_type(obj), ##__VA_ARGS__);           \
+    } while (0)
 
 #endif /* __OSC_PARSER_H__ */

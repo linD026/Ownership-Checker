@@ -53,27 +53,6 @@ static __always_inline int blank(char ch)
     return 0;
 }
 
-static __always_inline int check_ptr_type(struct scan_file_control *sfc,
-                                          struct object_type_struct *ot)
-{
-again:
-    buffer_for_each (sfc) {
-        if (blank(ch))
-            continue;
-        switch (ch) {
-        case '*':
-            ot->type |= OBJECT_TYPE_PTR;
-            /* pointer symbol, skip one char. */
-            sfc->offset++;
-            return 0;
-        default:
-            return 0;
-        }
-    }
-    next_line(sfc);
-    goto again;
-}
-
 static __always_inline int
 decode_action(struct scan_file_control *sfc, struct object_struct *obj,
               int (*action)(struct scan_file_control *, struct object_struct *))
@@ -91,11 +70,45 @@ again:
     goto again;
 }
 
+static __always_inline int check_ptr_type(struct scan_file_control *sfc,
+                                          struct object_struct *obj)
+{
+    struct object_type_struct *ot = &obj->ot;
+
+    switch (sfc->buffer[sfc->offset]) {
+    case '*':
+        ot->type |= OBJECT_TYPE_PTR;
+        /* pointer symbol, skip one char. */
+        sfc->offset++;
+        return 0;
+    default:
+        return 0;
+    }
+    return 0;
+}
+
+static __always_inline int check_attr_type(struct scan_file_control *sfc,
+                                           struct object_struct *obj)
+{
+    struct object_type_struct *ot = &obj->ot;
+
+    for (unsigned int i = 0; i < nr_var_attr; i++) {
+        if (var_attr_table[i].len > sfc->size - sfc->offset)
+            continue;
+        if (strncmp(&sfc->buffer[sfc->offset], var_attr_table[i].type,
+                    var_attr_table[i].len) == 0) {
+            ot->attr_type |= var_attr_table[i].flag;
+            sfc->offset += var_attr_table[i].len;
+        }
+    }
+    return 0;
+}
+
 static int decode_type(struct scan_file_control *sfc, struct object_struct *obj)
 {
     struct object_type_struct *ot = &obj->ot;
 
-    for (unsigned int i = 0; i < nr_type_table; i++) {
+    for (unsigned int i = 0; i < nr_object_type; i++) {
         if (type_table[i].len > sfc->size - sfc->offset)
             continue;
         if (strncmp(&sfc->buffer[sfc->offset], type_table[i].type,
@@ -103,7 +116,8 @@ static int decode_type(struct scan_file_control *sfc, struct object_struct *obj)
             ot->type = type_table[i].flag;
             /* Now check the pointer type */
             sfc->offset += type_table[i].len;
-            check_ptr_type(sfc, ot);
+            decode_action(sfc, obj, check_attr_type);
+            decode_action(sfc, obj, check_ptr_type);
             return 0;
         }
     }
@@ -238,10 +252,7 @@ static int decode(struct scan_file_control *sfc)
         /* determine the function, structure, or even variable declaration. */
         decode_action(sfc, obj, decode_file_scope_object);
 
-        pr_debug("\ntype: %s %s\nname: %s\nobject:%s\n",
-                 obj_type_name(&obj->ot), obj_ptr_type(&obj->ot) ? "*" : "",
-                 obj->name,
-                 (obj->fso_type == fso_function) ? "function" : "...");
+        dump_object(obj, "first");
 
         /* If object is function, decode the function scope  */
         if (obj->fso_type == fso_function) {
@@ -257,10 +268,7 @@ static int decode(struct scan_file_control *sfc)
         list_for_each_safe (&obj->func_args_head) {
             struct object_struct *tmp =
                 container_of(curr, struct object_struct, func_args_node);
-            pr_debug("\ntype: %s %s\nname: %s\nobject:%s\n",
-                     obj_type_name(&tmp->ot), obj_ptr_type(&tmp->ot) ? "*" : "",
-                     tmp->name,
-                     (tmp->fso_type == fso_function) ? "function" : "...");
+            dump_object(tmp, "from head");
         }
         add_file_list(sfc, obj);
     }

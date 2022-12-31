@@ -50,6 +50,7 @@ struct object_struct *object_alloc(void)
     memset(obj->name, '\0', MAX_NR_NAME);
     obj->fso_type = fso_unkown;
     obj->ot.type = 0;
+    obj->ot.attr_type = VAR_ATTR_DEFAULT;
     list_init(&obj->func_args_node);
     return obj;
 }
