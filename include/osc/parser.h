@@ -94,8 +94,6 @@ static inline int obj_type_same(struct object_type_struct *a,
     return a->type == b->type;
 }
 
-struct object_struct *object_alloc(void);
-
 /* variable attribut */
 
 #define VAR_ATTR_DEFAULT 0x0000U
@@ -112,20 +110,32 @@ extern const struct type_info var_attr_table[];
 
 struct object_struct {
     char name[MAX_NR_NAME];
-    /* file scope object */
     /* If it is the function this is return type. */
     struct object_type_struct ot;
+};
+
+struct bsobject_struct {
+    struct object_struct info;
+    union {
+        struct list_head block_scope_node;
+        struct list_head block_scope_head;
+    };
+};
+
+/* file scope object */
+struct fsobject_struct {
+    struct object_struct info;
     /* function/structure/variable declaration type */
     unsigned int fso_type;
+    /* Could be function or variable type */
+    struct list_head node;
     union {
         struct list_head func_args_node;
         struct list_head func_args_head;
-
-        struct list_head scope_head;
     };
-    /* Could be function or variable type */
-    struct list_head node;
 };
+
+struct fsobject_struct *fsobject_alloc(void);
 
 enum file_scope_object_type {
     fso_unkown,
@@ -174,9 +184,9 @@ static inline char *dump_attr(struct object_struct *obj)
     return NULL;
 }
 
-static inline char *dump_fso_type(struct object_struct *obj)
+static inline char *dump_fso_type(struct fsobject_struct *fso)
 {
-    switch (obj->fso_type) {
+    switch (fso->fso_type) {
 #define SWITCH_FSO_ENTRY(type) \
     case type:                 \
         return #type;
@@ -189,12 +199,12 @@ static inline char *dump_fso_type(struct object_struct *obj)
         SWITCH_FSO_ENTRY(fso_variable_declaration)
 #undef SWITCH_FSO_ENTRY
     default:
-        WARN_ON(1, "unkown attr type:%u", obj->fso_type);
+        WARN_ON(1, "unkown attr type:%u", fso->fso_type);
     }
     return NULL;
 }
 
-#define dump_object(obj, fmt, ...)                             \
+#define dump_fsobject(fso, fmt, ...)                             \
     do {                                                       \
         pr_debug("\n"                                          \
                  "==== dump object ====\n"                     \
@@ -204,9 +214,9 @@ static inline char *dump_fso_type(struct object_struct *obj)
                  "---------------------\n"                     \
                  "note: " fmt "\n"                             \
                  "=====================\n",                    \
-                 obj_type_name(&obj->ot), dump_attr(obj),      \
-                 obj_ptr_type(&obj->ot) ? "*" : "", obj->name, \
-                 dump_fso_type(obj), ##__VA_ARGS__);           \
+                 obj_type_name(&fso->info.ot), dump_attr(&fso->info),      \
+                 obj_ptr_type(&fso->info.ot) ? "*" : "", fso->info.name, \
+                 dump_fso_type(fso), ##__VA_ARGS__);           \
     } while (0)
 
 #endif /* __OSC_PARSER_H__ */
