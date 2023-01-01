@@ -53,56 +53,52 @@ static __always_inline int blank(char ch)
     return 0;
 }
 
-static __always_inline int decode_obj_action(
-    struct scan_file_control *sfc, struct object_struct *obj,
-    int (*action)(struct scan_file_control *, struct object_struct *))
-{
-    if (!action)
-        return -EINVAL;
-again:
-    buffer_for_each (sfc) {
-        if (blank(ch))
-            continue;
-        if (!action(sfc, obj))
-            return 0;
-    }
-    next_line(sfc);
-    goto again;
-}
+/*
+ * It will get the next non-blank symbols. it's same as following function:
+ *
+ *   static __always_inline int decode_obj_action(
+ *       struct scan_file_control *sfc, struct object_struct *obj,
+ *       int (*action)(struct scan_file_control *, struct object_struct *))
+ *   {
+ *       if (!action)
+ *           return -EINVAL;
+ *   again:
+ *       buffer_for_each (sfc) {
+ *           if (blank(ch))
+ *               continue;
+ *           if (!action(sfc, obj))
+ *               return 0;
+ *       }
+ *       next_line(sfc);
+ *       goto again;
+ *   }
+ *
+ */
+#define __decode_action(sfc, obj, action, id)   \
+    do {                                        \
+        da_##id##_again : buffer_for_each (sfc) \
+        {                                       \
+            if (blank(ch))                      \
+                continue;                       \
+            if (!action(sfc, obj))              \
+                goto da_##id##_out;             \
+        }                                       \
+        next_line(sfc);                         \
+        goto da_##id##_again;                   \
+        da_##id##_out:;                         \
+    } while (0)
 
-static __always_inline int decode_bso_action(
-    struct scan_file_control *sfc, struct bsobject_struct *bso,
-    int (*action)(struct scan_file_control *, struct bsobject_struct *))
-{
-    if (!action)
-        return -EINVAL;
-again:
-    buffer_for_each (sfc) {
-        if (blank(ch))
-            continue;
-        if (!action(sfc, bso))
-            return 0;
-    }
-    next_line(sfc);
-    goto again;
-}
+#define _decode_action(sfc, obj, action, id) \
+    __decode_action(sfc, obj, action, id)
 
-static __always_inline int decode_fso_action(
-    struct scan_file_control *sfc, struct fsobject_struct *fso,
-    int (*action)(struct scan_file_control *, struct fsobject_struct *))
-{
-    if (!action)
-        return -EINVAL;
-again:
-    buffer_for_each (sfc) {
-        if (blank(ch))
-            continue;
-        if (!action(sfc, fso))
-            return 0;
-    }
-    next_line(sfc);
-    goto again;
-}
+#define decode_obj_action(sfc, obj, action) \
+    _decode_action(sfc, obj, action, __LINE__)
+
+#define decode_bso_action(sfc, obj, action) \
+    _decode_action(sfc, obj, action, __LINE__)
+
+#define decode_fso_action(sfc, obj, action) \
+    _decode_action(sfc, obj, action, __LINE__)
 
 static __always_inline int check_ptr_type(struct scan_file_control *sfc,
                                           struct object_struct *obj)
