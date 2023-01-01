@@ -43,20 +43,21 @@ void clear_obj_struct_name(struct object_type_struct *ot)
     ot->type = 0;
 }
 
-static inline void object_init(struct object_struct *obj)
+void object_init(struct object_struct *obj)
 {
     memset(obj->name, '\0', MAX_NR_NAME);
-    obj->ot.type = 0;
+    obj->ot.type = OBJECT_TYPE_NONE;
     obj->ot.attr_type = VAR_ATTR_DEFAULT;
 }
 
-struct bsobject_struct *bsobject_alloc(void)
+struct bsobject_struct *bsobject_alloc(struct fsobject_struct *fso)
 {
     struct bsobject_struct *bso = malloc(sizeof(struct bsobject_struct));
     BUG_ON(!bso, "malloc");
 
     object_init(&bso->info);
     list_init(&bso->block_scope_node);
+    bso->fso = fso;
 
     return bso;
 }

@@ -35,9 +35,21 @@ struct object_type_struct {
     unsigned int attr_type;
 };
 
+/* variable attribute */
+
+#define VAR_ATTR_DEFAULT 0x0000U
+#define VAR_ATTR_BRW 0x0001U
+#define VAR_ATTR_MUT 0x0002U
+#define VAR_ATTR_BRW_ONCE (VAR_ATTR_BRW | VAR_ATTR_MUT)
+
+#define nr_var_attr 2
+/* Define in src/check_ownership.c */
+extern const struct type_info var_attr_table[];
+
 /* object_type_struct->type */
-#define OBJECT_TYPE_STRUCT 0x0001U
-#define OBJECT_TYPE_PTR 0x0002U
+#define OBJECT_TYPE_NONE 0x0000U
+#define OBJECT_TYPE_PTR 0x0001U
+#define OBJECT_TYPE_STRUCT 0x0002U
 #define OBJECT_TYPE_INT 0x0004U
 #define OBJECT_TYPE_VOID 0x0008U
 
@@ -64,6 +76,8 @@ static inline char *obj_type_name(struct object_type_struct *ot)
             SWITCH_TYPE_ENTRY(int, INT)
             SWITCH_TYPE_ENTRY(void, VOID)
 #undef SWITCH_TYPE_ENTRY
+        case OBJECT_TYPE_NONE:
+            return "";
         default:
             WARN_ON(1, "unkown type:%lu", ot->type);
             return NULL;
@@ -96,20 +110,11 @@ static inline int obj_type_same(struct object_type_struct *a,
     return a->type == b->type;
 }
 
-/* variable attribute */
-
-#define VAR_ATTR_DEFAULT 0x0000U
-#define VAR_ATTR_BRW 0x0001U
-#define VAR_ATTR_MUT 0x0002U
-#define VAR_ATTR_BRW_ONCE (VAR_ATTR_BRW | VAR_ATTR_MUT)
-
-#define nr_var_attr 2
-/* Define in src/check_ownership.c */
-extern const struct type_info var_attr_table[];
-
 /* Object and file info */
 
 #define MAX_NR_NAME 80
+
+struct fsobject_struct;
 
 struct object_struct {
     char name[MAX_NR_NAME];
@@ -117,15 +122,19 @@ struct object_struct {
     struct object_type_struct ot;
 };
 
+void object_init(struct object_struct *obj);
+
+/* block scope object */
 struct bsobject_struct {
     struct object_struct info;
     union {
         struct list_head block_scope_node;
         struct list_head block_scope_head;
     };
+    struct fsobject_struct *fso;
 };
 
-struct bsobject_struct *bsobject_alloc(void);
+struct bsobject_struct *bsobject_alloc(struct fsobject_struct *fso);
 
 /* file scope object */
 struct fsobject_struct {
@@ -200,19 +209,33 @@ static inline char *dump_fso_type(struct fsobject_struct *fso)
     return NULL;
 }
 
-#define dump_fsobject(fso, fmt, ...)                                     \
-    do {                                                                 \
-        pr_debug("\n"                                                    \
-                 "==== dump object ====\n"                               \
-                 "type; %s %s %s\n"                                      \
-                 "name: %s\n"                                            \
-                 "fso_type: %s\n"                                        \
-                 "---------------------\n"                               \
-                 "note: " fmt "\n"                                       \
-                 "=====================\n",                              \
-                 obj_type_name(&fso->info.ot), dump_attr(&fso->info),    \
-                 obj_ptr_type(&fso->info.ot) ? "*" : "", fso->info.name, \
-                 dump_fso_type(fso), ##__VA_ARGS__);                     \
+#define dump_fsobject(fso, fmt, ...)                                  \
+    do {                                                              \
+        print("\n"                                                    \
+              "==== dump object ====\n"                               \
+              "type; %s %s %s\n"                                      \
+              "name: %s\n"                                            \
+              "fso_type: %s\n"                                        \
+              "---------------------\n"                               \
+              "note: " fmt "\n"                                       \
+              "=====================\n",                              \
+              obj_type_name(&fso->info.ot), dump_attr(&fso->info),    \
+              obj_ptr_type(&fso->info.ot) ? "*" : "", fso->info.name, \
+              dump_fso_type(fso), ##__VA_ARGS__);                     \
+    } while (0)
+
+#define dump_bsobject(bso, fmt, ...)                                  \
+    do {                                                              \
+        print("\n"                                                    \
+              "==== dump object ====\n"                               \
+              "type; %s %s %s\n"                                      \
+              "name: %s\n"                                            \
+              "---------------------\n"                               \
+              "note: " fmt "\n"                                       \
+              "=====================\n",                              \
+              obj_type_name(&bso->info.ot), dump_attr(&bso->info),    \
+              obj_ptr_type(&bso->info.ot) ? "*" : "", bso->info.name, \
+              ##__VA_ARGS__);                                         \
     } while (0)
 
 /* Parser structures and functions */
@@ -223,6 +246,25 @@ struct file_info {
     struct list_head node;
     struct list_head func_head;
     FILE *file;
+};
+
+enum scope_type {
+    st_file_scope,
+    st_function_scope,
+    st_block_scope,
+    nr_scope_type,
+};
+
+#define MAX_BUFFER_LEN 128
+
+struct scan_file_control {
+    struct file_info *fi;
+    char buffer[MAX_BUFFER_LEN];
+    unsigned int size;
+    unsigned int offset;
+    unsigned long line;
+    unsigned int scope_type;
+    struct fsobject_struct *cached_fso;
 };
 
 int parser(struct file_info *fi);

@@ -1,36 +1,20 @@
 #include <osc/parser.h>
+#include <osc/check_list.h>
 #include <osc/compiler.h>
 #include <osc/print.h>
 #include <osc/debug.h>
 #include <stdio.h>
 #include <errno.h>
 
-enum scope_type {
-    st_file_scope,
-    st_function_scope,
-    st_block_scope,
-    nr_scope_type,
-};
-
-#define MAX_BUFFER_LEN 128
-
-struct scan_file_control {
-    struct file_info *fi;
-    char buffer[MAX_BUFFER_LEN];
-    unsigned int size;
-    unsigned int offset;
-    unsigned int scope_type;
-    struct fsobject_struct *cached_fso;
-};
-
-#define for_each_line(sfc)    \
-    while ((sfc)->offset = 0, \
+#define for_each_line(sfc)                   \
+    while ((sfc)->offset = 0, (sfc)->line++, \
            fgets((sfc)->buffer, (sfc)->size, (sfc)->fi->file) != NULL)
 
-#define next_line(sfc)                                                \
-    ({                                                                \
-        (sfc)->offset = 0;                                            \
-        (fgets((sfc)->buffer, (sfc)->size, (sfc)->fi->file) != NULL); \
+#define next_line(sfc)                                                    \
+    ({                                                                    \
+        (sfc)->offset = 0;                                                \
+        (sfc)->line++,                                                    \
+            (fgets((sfc)->buffer, (sfc)->size, (sfc)->fi->file) != NULL); \
     })
 
 #define line_end(sfc) \
@@ -74,31 +58,42 @@ static __always_inline int blank(char ch)
  *   }
  *
  */
-#define __decode_action(sfc, obj, action, id)   \
-    do {                                        \
-        da_##id##_again : buffer_for_each (sfc) \
-        {                                       \
-            if (blank(ch))                      \
-                continue;                       \
-            if (!action(sfc, obj))              \
-                goto da_##id##_out;             \
-        }                                       \
-        next_line(sfc);                         \
-        goto da_##id##_again;                   \
-        da_##id##_out:;                         \
+#define ___decode_action(sfc, obj, action, id, ret) \
+    do {                                            \
+        da_##id##_again : buffer_for_each (sfc)     \
+        {                                           \
+            if (blank(ch))                          \
+                continue;                           \
+            ret = action(sfc, obj);                 \
+            if (ret != -EAGAIN)                     \
+                goto da_##id##_out;                 \
+        }                                           \
+        next_line(sfc);                             \
+        goto da_##id##_again;                       \
+        da_##id##_out:;                             \
     } while (0)
 
-#define _decode_action(sfc, obj, action, id) \
-    __decode_action(sfc, obj, action, id)
+#define __decode_action(sfc, obj, action, id)                         \
+    ({                                                                \
+        int __da_ret = 0;                                             \
+        ___decode_action(sfc, obj, action, id, __da_ret);             \
+        WARN_ON(__da_ret < 0, "action:%s, error:%d, buf:%s", #action, \
+                __da_ret, &sfc->buffer[sfc->offset]);                 \
+        __da_ret;                                                     \
+    })
 
-#define decode_obj_action(sfc, obj, action) \
-    _decode_action(sfc, obj, action, __LINE__)
+#define decode_action(sfc, obj, action) \
+    __decode_action(sfc, obj, action, __LINE__)
 
-#define decode_bso_action(sfc, obj, action) \
-    _decode_action(sfc, obj, action, __LINE__)
+#define __try_decode_action(sfc, obj, action, id)         \
+    ({                                                    \
+        int __da_ret = 0;                                 \
+        ___decode_action(sfc, obj, action, id, __da_ret); \
+        __da_ret;                                         \
+    })
 
-#define decode_fso_action(sfc, obj, action) \
-    _decode_action(sfc, obj, action, __LINE__)
+#define try_decode_action(sfc, obj, action) \
+    __try_decode_action(sfc, obj, action, __LINE__)
 
 static __always_inline int check_ptr_type(struct scan_file_control *sfc,
                                           struct object_struct *obj)
@@ -112,6 +107,8 @@ static __always_inline int check_ptr_type(struct scan_file_control *sfc,
         sfc->offset++;
         return 0;
     default:
+        if (unlikely(ot->attr_type & VAR_ATTR_BRW))
+            bad(sfc, "__brw with non pointer object");
         return 0;
     }
     return 0;
@@ -137,14 +134,9 @@ static __always_inline int check_attr_type(struct scan_file_control *sfc,
     return 0;
 }
 
-/*
- * File scope object functions
- */
-
-static int decode_type(struct scan_file_control *sfc,
-                       struct fsobject_struct *fso)
+static int decode_type(struct scan_file_control *sfc, struct object_struct *obj)
 {
-    struct object_type_struct *ot = &fso->info.ot;
+    struct object_type_struct *ot = &obj->ot;
 
     for (unsigned int i = 0; i < nr_object_type; i++) {
         if (type_table[i].len > sfc->size - sfc->offset)
@@ -154,14 +146,49 @@ static int decode_type(struct scan_file_control *sfc,
             ot->type = type_table[i].flag;
             /* Now check the pointer type */
             sfc->offset += type_table[i].len;
-            decode_obj_action(sfc, &fso->info, check_attr_type);
-            decode_obj_action(sfc, &fso->info, check_ptr_type);
+            decode_action(sfc, obj, check_attr_type);
+            decode_action(sfc, obj, check_ptr_type);
             return 0;
         }
     }
-    WARN_ON(1, "unkown type:%s", &sfc->buffer[sfc->offset]);
+
     return -EINVAL;
 }
+
+static int decode_object_name(struct scan_file_control *sfc,
+                              struct object_struct *obj)
+{
+    for (unsigned int i = 0; i < MAX_NR_NAME; i++) {
+        if (line_end(sfc))
+            return 0;
+        switch (sfc->buffer[sfc->offset]) {
+        /* EX: func(int a, int b); */
+        case ',':
+        case ')':
+        /* EX: struct name {  ... } or void func(...) */
+        case '{':
+        case '(':
+            return 0;
+        /* EX: ... name = ... */
+        case '=':
+            sfc->offset++;
+            return 1;
+        /* EX: name = .... or name ( ..) */
+        case ' ':
+            /* check next symbol */
+            sfc->offset++;
+            break;
+        default:
+            obj->name[i] = sfc->buffer[sfc->offset++];
+        }
+    }
+
+    return -EINVAL;
+}
+
+/*
+ * File scope object functions
+ */
 
 static int decode_file_scope_object(struct scan_file_control *sfc,
                                     struct fsobject_struct *fso)
@@ -176,35 +203,11 @@ static int decode_file_scope_object(struct scan_file_control *sfc,
         fso->fso_type = fso_function;
         goto out;
     default:
-        WARN_ON(1, "unkown fsobject:%s", &sfc->buffer[sfc->offset]);
         return -EINVAL;
     }
 out:
     sfc->offset++;
     return 0;
-}
-
-static int decode_object_name(struct scan_file_control *sfc,
-                              struct fsobject_struct *fso)
-{
-    for (unsigned int i = 0; i < MAX_NR_NAME; i++) {
-        if (line_end(sfc))
-            return 0;
-        switch (sfc->buffer[sfc->offset]) {
-        /* EX: func(int a, int b); */
-        case ',':
-        case ')':
-        /* EX: struct name {  ... } or void func(...) */
-        case '{':
-        case '(':
-            return 0;
-        default:
-            fso->info.name[i] = sfc->buffer[sfc->offset++];
-        }
-    }
-
-    WARN_ON(1, "unkown fsobject name:%s", &sfc->buffer[sfc->offset]);
-    return -EINVAL;
 }
 
 static int decode_function(struct scan_file_control *sfc,
@@ -223,8 +226,8 @@ static int decode_function(struct scan_file_control *sfc,
         goto out;
     default:
         WARN_ON(!sfc->cached_fso, "unallocate fsobject");
-        decode_fso_action(sfc, sfc->cached_fso, decode_type);
-        decode_fso_action(sfc, sfc->cached_fso, decode_object_name);
+        decode_action(sfc, &sfc->cached_fso->info, decode_type);
+        decode_action(sfc, &sfc->cached_fso->info, decode_object_name);
         list_add_tail(&sfc->cached_fso->func_args_node, &fso->func_args_head);
         /* Check if there still have argument(s). */
         sfc->cached_fso = fsobject_alloc();
@@ -244,19 +247,58 @@ out:
 /*
  * Block scope object functions
  */
-
 static int decode_expr(struct scan_file_control *sfc,
                        struct bsobject_struct *bso)
 {
-    /* End of the expression line */
+    //pr_debug("expr:%s\n", &sfc->buffer[sfc->offset]);
     if (sfc->buffer[sfc->offset] == ';')
         return 0;
-    if (sfc->buffer[sfc->offset] == '{') {
-        /* block scope */
-        // create block scope info
+    return -EAGAIN;
+}
 
+static int decode_block_scope_object(struct scan_file_control *sfc,
+                                     struct bsobject_struct *bso);
+
+static int decode_stmt(struct scan_file_control *sfc,
+                       struct bsobject_struct *bso)
+{
+    struct bsobject_struct *lvalue = NULL;
+
+    /* End of the block scope */
+    if (sfc->buffer[sfc->offset] == '}')
+        return 0;
+    /* New block scope */
+    if (sfc->buffer[sfc->offset] == '{') {
+        /* block scope - create block scope info */
+        struct bsobject_struct *new = bsobject_alloc(bso->fso);
+
+        decode_action(sfc, new, decode_stmt);
         /* Check the next token. */
     }
+
+    /*
+     * get lvalue
+     * Check the write operation: lvalue = expr
+     * We should check the attr type of lvalue.
+     */
+    lvalue = bsobject_alloc(bso->fso);
+    /* 
+     * First try to get the type.
+     * decoded the type, it is the variable declaration.
+     */
+    //pr_debug("buffer:%s\n", &sfc->buffer[sfc->offset]);
+    if (!try_decode_action(sfc, &lvalue->info, decode_type))
+        list_add_tail(&lvalue->block_scope_node, &bso->block_scope_head);
+    /* Check pointer type. */
+    try_decode_action(sfc, &lvalue->info, check_ptr_type);
+    /* Get the name. */
+    decode_action(sfc, &lvalue->info, decode_object_name);
+    check_func_args_write(sfc, lvalue);
+    // TODO: what if the function call?
+    decode_action(sfc, NULL, decode_expr);
+
+    // check attr type
+    // variable declaration?
 
     return -EAGAIN;
 }
@@ -268,7 +310,7 @@ static int decode_block_scope_object(struct scan_file_control *sfc,
     if (sfc->buffer[sfc->offset] == '}')
         return 0;
 
-    decode_bso_action(sfc, bso, decode_expr);
+    decode_action(sfc, bso, decode_stmt);
 
     return -EAGAIN;
 }
@@ -313,42 +355,41 @@ static int decode(struct scan_file_control *sfc)
          * For function and variable, we can get the type first.
          * the object type of file scope
          */
-        decode_fso_action(sfc, fso, decode_type);
+        decode_action(sfc, &fso->info, decode_type);
         /*
          * Check the object is function and structure declaration/definition,
          * variable declaration.
          * the object of file scope
          */
         /* get the name */
-        decode_fso_action(sfc, fso, decode_object_name);
+        decode_action(sfc, &fso->info, decode_object_name);
         /* determine the function, structure, or even variable declaration. */
-        decode_fso_action(sfc, fso, decode_file_scope_object);
+        decode_action(sfc, fso, decode_file_scope_object);
 
         /* If object is function, decode the function scope  */
         if (fso->fso_type == fso_function) {
             /* prealloc the object.*/
             sfc->cached_fso = fsobject_alloc();
             sfc->cached_fso->fso_type = fso_function_args;
-            decode_fso_action(sfc, fso, decode_function);
+            decode_action(sfc, fso, decode_function);
             WARN_ON(sfc->cached_fso, "unclear the cached object");
             if (fso->fso_type == fso_function_definition) {
                 // create block scope info
-                struct bsobject_struct *bso = NULL;
+                struct bsobject_struct *bso = bsobject_alloc(fso);
 
-                decode_bso_action(sfc, bso, decode_block_scope_object);
+                dump_fsobject(fso, "first");
+                list_for_each_safe (&fso->func_args_head) {
+                    struct fsobject_struct *tmp = container_of(
+                        curr, struct fsobject_struct, func_args_node);
+                    dump_fsobject(tmp, "from head");
+                }
+                decode_action(sfc, bso, decode_block_scope_object);
             }
         }
-
-        dump_fsobject(fso, "first");
 
         /* If object is structure, decode the member */
         /* If object is the variable, ... */
 
-        list_for_each_safe (&fso->func_args_head) {
-            struct fsobject_struct *tmp =
-                container_of(curr, struct fsobject_struct, func_args_node);
-            dump_fsobject(tmp, "from head");
-        }
         add_file_list(sfc, fso);
     }
 
@@ -368,6 +409,7 @@ int parser(struct file_info *fi)
         .fi = fi,
         .size = MAX_BUFFER_LEN,
         .offset = 0,
+        .line = 0,
         /* Initialize the scope to file scope. */
         .scope_type = st_file_scope,
     };
