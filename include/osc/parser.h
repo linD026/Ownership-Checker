@@ -127,9 +127,12 @@ void object_init(struct object_struct *obj);
 /* block scope object */
 struct bsobject_struct {
     struct object_struct info;
+    /* for fso->func_block_scope_node */
+    struct list_head func_block_scope_node;
+    /* for block scope var declaration */
     union {
-        struct list_head block_scope_node;
-        struct list_head block_scope_head;
+        struct list_head var_declaration_node;
+        struct list_head var_declaration_head;
     };
     struct fsobject_struct *fso;
 };
@@ -143,9 +146,16 @@ struct fsobject_struct {
     unsigned int fso_type;
     /* Could be function or variable type */
     struct list_head node;
-    union {
+
+    /* function arguments */
+    struct {
         struct list_head func_args_node;
+        struct fsobject_struct *func;
+    };
+    /* function object */
+    struct {
         struct list_head func_args_head;
+        struct list_head func_block_scope_head;
     };
 };
 

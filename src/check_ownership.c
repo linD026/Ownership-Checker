@@ -24,10 +24,12 @@ void bad_fsobject(struct fsobject_struct *fso)
 {
     print("    \e[36m|\e[0m \n"
           "    \e[36m=\e[0m ==== dump object ====\n"
+          "    \e[36m||\e[0m function; %s\n"
           "    \e[36m||\e[0m type; %s %s %s\n"
           "    \e[36m||\e[0m name: %s\n"
           "    \e[36m||\e[0m info: %s\n"
           "    \e[36m=\e[0m =====================\n",
+          fso->func->info.name,
           obj_type_name(&fso->info.ot), dump_attr(&fso->info),
           obj_ptr_type(&fso->info.ot) ? "*" : "", fso->info.name,
           dump_fso_type(fso));

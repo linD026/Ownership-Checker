@@ -10,8 +10,8 @@ CFLAGS+=-Wall
 CFLAGS+=-O1
 
 DEBUG_FLAGS=
-ifneq ($(strip $(debug)),)
-DEBUG_FLAGS+=-fsanitize=thread
+ifneq ($(strip $(verbose)),)
+#DEBUG_FLAGS+=-fsanitize=thread
 DEBUG_FLAGS+=-D'CONFIG_DEBUG'
 CFLAGS+=$(DEBUG_FLAGS)
 endif
@@ -42,7 +42,7 @@ endif
 %.o: %.c
 	$(OSC_CC) $(CFLAGS) $(INC_PARAMS) -c $< -o $@
 
-build: $(OBJ)
+build: clean $(OBJ)
 	$(OSC_CC) $(CFLAGS) $(OBJ) -o $(BIN)
 
 clean:

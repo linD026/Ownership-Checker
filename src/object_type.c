@@ -56,7 +56,8 @@ struct bsobject_struct *bsobject_alloc(struct fsobject_struct *fso)
     BUG_ON(!bso, "malloc");
 
     object_init(&bso->info);
-    list_init(&bso->block_scope_node);
+    list_init(&bso->func_block_scope_node);
+    list_init(&bso->var_declaration_head);
     bso->fso = fso;
 
     return bso;
@@ -71,6 +72,9 @@ struct fsobject_struct *fsobject_alloc(void)
     fso->fso_type = fso_unkown;
     list_init(&fso->node);
     list_init(&fso->func_args_node);
+    fso->func = NULL;
+    list_init(&fso->func_args_head);
+    list_init(&fso->func_block_scope_head);
 
     return fso;
 }

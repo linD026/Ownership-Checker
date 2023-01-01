@@ -227,6 +227,7 @@ static int decode_function(struct scan_file_control *sfc,
         goto out;
     default:
         WARN_ON(!sfc->cached_fso, "unallocate fsobject");
+        sfc->cached_fso->func = fso;
         decode_action(sfc, &sfc->cached_fso->info, decode_type);
         decode_action(sfc, &sfc->cached_fso->info, decode_object_name);
         list_add_tail(&sfc->cached_fso->func_args_node, &fso->func_args_head);
@@ -251,7 +252,7 @@ out:
 static int decode_expr(struct scan_file_control *sfc,
                        struct bsobject_struct *bso)
 {
-    //pr_debug("expr:%s\n", &sfc->buffer[sfc->offset]);
+    pr_debug("expr:%s\n", &sfc->buffer[sfc->offset]);
     if (sfc->buffer[sfc->offset] == ';')
         return 0;
     return -EAGAIN;
@@ -265,6 +266,7 @@ static int decode_stmt(struct scan_file_control *sfc,
 {
     struct bsobject_struct *lvalue = NULL;
 
+    pr_debug("buffer:%s\n", &sfc->buffer[sfc->offset]);
     /* End of the block scope */
     if (sfc->buffer[sfc->offset] == '}')
         return 0;
@@ -272,9 +274,12 @@ static int decode_stmt(struct scan_file_control *sfc,
     if (sfc->buffer[sfc->offset] == '{') {
         /* block scope - create block scope info */
         struct bsobject_struct *new = bsobject_alloc(bso->fso);
-
+        
+        list_add_tail(&new->func_block_scope_node,
+                      &new->fso->func_block_scope_head);
+        sfc->offset++;
         decode_action(sfc, new, decode_stmt);
-        /* Check the next token. */
+        return 0;
     }
 
     /*
@@ -287,16 +292,18 @@ static int decode_stmt(struct scan_file_control *sfc,
      * First try to get the type.
      * decoded the type, it is the variable declaration.
      */
-    //pr_debug("buffer:%s\n", &sfc->buffer[sfc->offset]);
-    if (!try_decode_action(sfc, &lvalue->info, decode_type))
-        list_add_tail(&lvalue->block_scope_node, &bso->block_scope_head);
-    /* Check pointer type. */
-    try_decode_action(sfc, &lvalue->info, check_ptr_type);
-    /* Get the name. */
+    if (!try_decode_action(sfc, &lvalue->info, decode_type)) {
+        /* lvalue is declaration */
+        list_add_tail(&lvalue->var_declaration_node,
+                      &bso->var_declaration_head);
+    } else {
+        /* Check pointer type. */
+        try_decode_action(sfc, &lvalue->info, check_ptr_type);
+    }
     decode_action(sfc, &lvalue->info, decode_object_name);
     check_func_args_write(sfc, lvalue);
     // TODO: what if the function call?
-    decode_action(sfc, NULL, decode_expr);
+    decode_action(sfc, lvalue, decode_expr);
 
     // check attr type
     // variable declaration?
@@ -378,6 +385,8 @@ static int decode(struct scan_file_control *sfc)
                 // create block scope info
                 struct bsobject_struct *bso = bsobject_alloc(fso);
 
+                list_add_tail(&bso->func_block_scope_node,
+                              &fso->func_block_scope_head);
                 dump_fsobject(fso, "first");
                 list_for_each_safe (&fso->func_args_head) {
                     struct fsobject_struct *tmp = container_of(
