@@ -57,7 +57,10 @@ struct bsobject_struct *bsobject_alloc(struct fsobject_struct *fso)
 
     object_init(&bso->info);
     list_init(&bso->func_block_scope_node);
+    list_init(&bso->var_declaration_node);
+    bso->bso = NULL;
     list_init(&bso->var_declaration_head);
+    bso->bso_type = bso_unkown;
     bso->fso = fso;
 
     return bso;

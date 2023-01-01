@@ -127,17 +127,29 @@ void object_init(struct object_struct *obj);
 /* block scope object */
 struct bsobject_struct {
     struct object_struct info;
-    /* for fso->func_block_scope_node */
+    /* for fso->func_block_scope_head */
     struct list_head func_block_scope_node;
     /* for block scope var declaration */
-    union {
+    struct {
         struct list_head var_declaration_node;
+        struct bsobject_struct *bso;
+    };
+    /* for block scope */
+    struct {
         struct list_head var_declaration_head;
     };
+    unsigned int bso_type;
     struct fsobject_struct *fso;
 };
 
 struct bsobject_struct *bsobject_alloc(struct fsobject_struct *fso);
+
+enum block_scope_object_type {
+    bso_unkown,
+    bso_structure,
+    bso_function_call,
+    nr_block_scope_object_type,
+};
 
 /* file scope object */
 struct fsobject_struct {

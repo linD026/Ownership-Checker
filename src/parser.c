@@ -249,13 +249,64 @@ out:
 /*
  * Block scope object functions
  */
-static int decode_expr(struct scan_file_control *sfc,
-                       struct bsobject_struct *bso)
+
+static int decode_block_scope_object_type(struct scan_file_control *sfc,
+                                          struct bsobject_struct *bso)
 {
+    switch (sfc->buffer[sfc->offset]) {
+    case '{':
+        bso->bso_type = bso_structure;
+        goto out;
+    case '(':
+        bso->bso_type = bso_function_call;
+        goto out;
+    default:
+        WARN_ON(1, "unexpect symbol:%s", &sfc->buffer[sfc->offset]);
+        return -EINVAL;
+    }
+out:
+    sfc->offset++;
+    return 0;
+}
+
+static int decode_expr(struct scan_file_control *sfc,
+                       struct bsobject_struct *lvalue)
+{
+    struct bsobject_struct *new = NULL;
+
     pr_debug("expr:%s\n", &sfc->buffer[sfc->offset]);
     if (sfc->buffer[sfc->offset] == ';')
         return 0;
-    return -EAGAIN;
+
+    new = bsobject_alloc(lvalue->fso);
+
+    /*
+     * the expr has, the offset is at after first "=":
+     *  - ... = var = ... ;
+     *  - ... = *var = ... ;
+     *  - ... = func(a, b, c) ;
+     *  - ... = { struct init } ;
+     */
+
+    try_decode_action(sfc, &new->info, check_ptr_type);
+    decode_action(sfc, &new->info, decode_object_name);
+    /* check is function or not. */
+    decode_action(sfc, new, decode_block_scope_object_type);
+    switch (new->bso_type) {
+    case bso_function_call:
+        // TODO
+        // get fso function object
+        // decode args
+        // check attry (default -> __mut)
+        break;
+    case bso_structure:
+        // TODO
+    default:
+        WARN_ON(1, "Unsupport type:%u", new->bso_type);
+        return -EAGAIN;
+    }
+
+    return 0;
 }
 
 static int decode_block_scope_object(struct scan_file_control *sfc,
@@ -274,7 +325,7 @@ static int decode_stmt(struct scan_file_control *sfc,
     if (sfc->buffer[sfc->offset] == '{') {
         /* block scope - create block scope info */
         struct bsobject_struct *new = bsobject_alloc(bso->fso);
-        
+
         list_add_tail(&new->func_block_scope_node,
                       &new->fso->func_block_scope_head);
         sfc->offset++;
@@ -381,6 +432,14 @@ static int decode(struct scan_file_control *sfc)
             sfc->cached_fso->fso_type = fso_function_args;
             decode_action(sfc, fso, decode_function);
             WARN_ON(sfc->cached_fso, "unclear the cached object");
+
+            /*
+             * Add the function object to file.
+             * We should add before decoding the func definition object
+             * to prevent the recursive calling.
+             */
+            add_file_list(sfc, fso);
+
             if (fso->fso_type == fso_function_definition) {
                 // create block scope info
                 struct bsobject_struct *bso = bsobject_alloc(fso);
@@ -399,8 +458,7 @@ static int decode(struct scan_file_control *sfc)
 
         /* If object is structure, decode the member */
         /* If object is the variable, ... */
-
-        add_file_list(sfc, fso);
+        // add_file_list(sfc, fso);
     }
 
     return 0;

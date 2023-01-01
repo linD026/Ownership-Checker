@@ -1,0 +1,29 @@
+object relationship graph
+
+---
+
+         #[linked list]
+file_info->func_head
+|                ||             #[linked list]
+| #[function] fso_object(node)->func_args_head
+|                       |              ||
+|                       |      fso_object(func_args_node)
+|                       |
+|                       V
+|                 #[linked list]
+|             func_block_scope_head
+|                       ||                       #[linked list]
+| #[block] bso_object(func_block_scope_node)->var_declaration_head
+|                                                      ||
+|                                             bso_object(var_declaration_node)
+|
+|      #[linked list]
++-------->var_head
+
+
+
+---
+ 
+NOTE:
+- #[attribute]
+- struture(member)                   
