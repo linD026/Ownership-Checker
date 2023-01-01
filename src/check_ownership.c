@@ -14,7 +14,7 @@ const struct type_info var_attr_table[] = { VA_ENTRY(__brw, BRW),
 
 void bad(struct scan_file_control *sfc, const char *warning)
 {
-    print("\e[31mOSC ERROR\e[0m: %s\n", warning);
+    print("\e[1m\e[31mOSC ERROR\e[0m\e[0m: \e[1m%s\e[0m\n", warning);
     print("    \e[36m-->\e[0m %s:%lu:%u\n", sfc->fi->name, sfc->line,
           sfc->offset);
     print("    \e[36m|\e[0m    %s", sfc->buffer);
@@ -23,11 +23,11 @@ void bad(struct scan_file_control *sfc, const char *warning)
 void bad_fsobject(struct fsobject_struct *fso)
 {
     print("    \e[36m|\e[0m \n"
-          "    \e[36m|\e[0m ==== dump object ====\n"
-          "    \e[36m|\e[0m type; %s %s %s\n"
-          "    \e[36m|\e[0m name: %s\n"
-          "    \e[36m|\e[0m info: %s\n"
-          "    \e[36m|\e[0m =====================\n",
+          "    \e[36m=\e[0m ==== dump object ====\n"
+          "    \e[36m||\e[0m type; %s %s %s\n"
+          "    \e[36m||\e[0m name: %s\n"
+          "    \e[36m||\e[0m info: %s\n"
+          "    \e[36m=\e[0m =====================\n",
           obj_type_name(&fso->info.ot), dump_attr(&fso->info),
           obj_ptr_type(&fso->info.ot) ? "*" : "", fso->info.name,
           dump_fso_type(fso));

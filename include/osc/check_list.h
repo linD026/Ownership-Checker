@@ -6,6 +6,7 @@ struct fsobject_struct;
 struct bsobject_struct;
 
 void bad(struct scan_file_control *sfc, const char *warning);
+void bad_fsobject(struct fsobject_struct *fso);
 
 int check_ownership(void);
 
