@@ -26,7 +26,7 @@ static void create_file(struct osc_data *restrict data, char *restrict argv)
     list_init(&fi->node);
     list_init(&fi->func_head);
     fi->file = NULL;
-    print("Analyze file: %s\n", fi->name);
+    print("OSC Analyzes file: %s\n", fi->name);
 
     list_add_tail(&fi->node, &data->file_head);
 }

@@ -2,6 +2,9 @@
 #define __OSC_DEBUG_H__
 
 #include <osc/compiler.h>
+
+#if defined(CONFIG_DEBUG)
+
 #include <osc/print.h>
 #include <stdlib.h>
 #include <execinfo.h>
@@ -39,5 +42,20 @@ static __always_inline void dump_stack(void)
     } while (0)
 
 #define pr_debug(fmt, ...) pr_info("DEBUG: " fmt, ##__VA_ARGS__)
+
+#else /* ndef CONFIG_DEBUG */
+
+static __always_inline void dump_stack(void);
+#define BUG_ON(cond, fmt, ...) \
+    do {                       \
+    } while (0)
+#define WARN_ON(cond, fmt, ...) \
+    do {                        \
+    } while (0)
+#define pr_debug(fmt, ...) \
+    do {                   \
+    } while (0)
+
+#endif /* ifdef CONFIG_DEBUG */
 
 #endif /* __OSC_DEBUG_H__ */

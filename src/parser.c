@@ -4,6 +4,7 @@
 #include <osc/print.h>
 #include <osc/debug.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <errno.h>
 
 #define for_each_line(sfc)                   \

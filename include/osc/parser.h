@@ -209,33 +209,33 @@ static inline char *dump_fso_type(struct fsobject_struct *fso)
     return NULL;
 }
 
-#define dump_fsobject(fso, fmt, ...)                                  \
-    do {                                                              \
-        print("\n"                                                    \
-              "==== dump object ====\n"                               \
-              "type; %s %s %s\n"                                      \
-              "name: %s\n"                                            \
-              "fso_type: %s\n"                                        \
-              "---------------------\n"                               \
-              "note: " fmt "\n"                                       \
-              "=====================\n",                              \
-              obj_type_name(&fso->info.ot), dump_attr(&fso->info),    \
-              obj_ptr_type(&fso->info.ot) ? "*" : "", fso->info.name, \
-              dump_fso_type(fso), ##__VA_ARGS__);                     \
+#define dump_fsobject(fso, fmt, ...)                                     \
+    do {                                                                 \
+        pr_debug("\n"                                                    \
+                 "==== dump object ====\n"                               \
+                 "type; %s %s %s\n"                                      \
+                 "name: %s\n"                                            \
+                 "fso_type: %s\n"                                        \
+                 "---------------------\n"                               \
+                 "note: " fmt "\n"                                       \
+                 "=====================\n",                              \
+                 obj_type_name(&fso->info.ot), dump_attr(&fso->info),    \
+                 obj_ptr_type(&fso->info.ot) ? "*" : "", fso->info.name, \
+                 dump_fso_type(fso), ##__VA_ARGS__);                     \
     } while (0)
 
-#define dump_bsobject(bso, fmt, ...)                                  \
-    do {                                                              \
-        print("\n"                                                    \
-              "==== dump object ====\n"                               \
-              "type; %s %s %s\n"                                      \
-              "name: %s\n"                                            \
-              "---------------------\n"                               \
-              "note: " fmt "\n"                                       \
-              "=====================\n",                              \
-              obj_type_name(&bso->info.ot), dump_attr(&bso->info),    \
-              obj_ptr_type(&bso->info.ot) ? "*" : "", bso->info.name, \
-              ##__VA_ARGS__);                                         \
+#define dump_bsobject(bso, fmt, ...)                                     \
+    do {                                                                 \
+        pr_debug("\n"                                                    \
+                 "==== dump object ====\n"                               \
+                 "type; %s %s %s\n"                                      \
+                 "name: %s\n"                                            \
+                 "---------------------\n"                               \
+                 "note: " fmt "\n"                                       \
+                 "=====================\n",                              \
+                 obj_type_name(&bso->info.ot), dump_attr(&bso->info),    \
+                 obj_ptr_type(&bso->info.ot) ? "*" : "", bso->info.name, \
+                 ##__VA_ARGS__);                                         \
     } while (0)
 
 /* Parser structures and functions */
