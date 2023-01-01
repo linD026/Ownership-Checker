@@ -50,6 +50,17 @@ static inline void object_init(struct object_struct *obj)
     obj->ot.attr_type = VAR_ATTR_DEFAULT;
 }
 
+struct bsobject_struct *bsobject_alloc(void)
+{
+    struct bsobject_struct *bso = malloc(sizeof(struct bsobject_struct));
+    BUG_ON(!bso, "malloc");
+
+    object_init(&bso->info);
+    list_init(&bso->block_scope_node);
+
+    return bso;
+}
+
 struct fsobject_struct *fsobject_alloc(void)
 {
     struct fsobject_struct *fso = malloc(sizeof(struct fsobject_struct));

@@ -7,6 +7,12 @@
 #include <string.h>
 #include <stdint.h>
 
+struct type_info {
+    char *type;
+    unsigned int len;
+    unsigned int flag;
+};
+
 /*
  *  Object type info
  *
@@ -29,12 +35,7 @@ struct object_type_struct {
     unsigned int attr_type;
 };
 
-struct type_info {
-    char *type;
-    unsigned int len;
-    unsigned int flag;
-};
-
+/* object_type_struct->type */
 #define OBJECT_TYPE_STRUCT 0x0001U
 #define OBJECT_TYPE_PTR 0x0002U
 #define OBJECT_TYPE_INT 0x0004U
@@ -50,6 +51,7 @@ enum {
     nr_object_type,
 };
 
+/* Define in src/object_type.c */
 extern const struct type_info type_table[];
 
 static inline char *obj_type_name(struct object_type_struct *ot)
@@ -94,7 +96,7 @@ static inline int obj_type_same(struct object_type_struct *a,
     return a->type == b->type;
 }
 
-/* variable attribut */
+/* variable attribute */
 
 #define VAR_ATTR_DEFAULT 0x0000U
 #define VAR_ATTR_BRW 0x0001U
@@ -102,6 +104,7 @@ static inline int obj_type_same(struct object_type_struct *a,
 #define VAR_ATTR_BRW_ONCE (VAR_ATTR_BRW | VAR_ATTR_MUT)
 
 #define nr_var_attr 2
+/* Define in src/check_ownership.c */
 extern const struct type_info var_attr_table[];
 
 /* Object and file info */
@@ -122,6 +125,8 @@ struct bsobject_struct {
     };
 };
 
+struct bsobject_struct *bsobject_alloc(void);
+
 /* file scope object */
 struct fsobject_struct {
     struct object_struct info;
@@ -137,6 +142,7 @@ struct fsobject_struct {
 
 struct fsobject_struct *fsobject_alloc(void);
 
+/* fsobject_struct->fso_type */
 enum file_scope_object_type {
     fso_unkown,
     fso_function,
@@ -152,16 +158,6 @@ enum file_scope_object_type {
     fso_variable_declaration,
     nr_file_scope_object_type,
 };
-
-struct file_info {
-    char name[MAX_NR_NAME];
-    /* For osc data struct in src/osc.c */
-    struct list_head node;
-    struct list_head func_head;
-    FILE *file;
-};
-
-int parser(struct file_info *fi);
 
 /* dump info */
 
@@ -204,19 +200,31 @@ static inline char *dump_fso_type(struct fsobject_struct *fso)
     return NULL;
 }
 
-#define dump_fsobject(fso, fmt, ...)                             \
-    do {                                                       \
-        pr_debug("\n"                                          \
-                 "==== dump object ====\n"                     \
-                 "type; %s %s %s\n"                            \
-                 "name: %s\n"                                  \
-                 "fso_type: %s\n"                              \
-                 "---------------------\n"                     \
-                 "note: " fmt "\n"                             \
-                 "=====================\n",                    \
-                 obj_type_name(&fso->info.ot), dump_attr(&fso->info),      \
+#define dump_fsobject(fso, fmt, ...)                                     \
+    do {                                                                 \
+        pr_debug("\n"                                                    \
+                 "==== dump object ====\n"                               \
+                 "type; %s %s %s\n"                                      \
+                 "name: %s\n"                                            \
+                 "fso_type: %s\n"                                        \
+                 "---------------------\n"                               \
+                 "note: " fmt "\n"                                       \
+                 "=====================\n",                              \
+                 obj_type_name(&fso->info.ot), dump_attr(&fso->info),    \
                  obj_ptr_type(&fso->info.ot) ? "*" : "", fso->info.name, \
-                 dump_fso_type(fso), ##__VA_ARGS__);           \
+                 dump_fso_type(fso), ##__VA_ARGS__);                     \
     } while (0)
+
+/* Parser structures and functions */
+
+struct file_info {
+    char name[MAX_NR_NAME];
+    /* For osc data struct in src/osc.c */
+    struct list_head node;
+    struct list_head func_head;
+    FILE *file;
+};
+
+int parser(struct file_info *fi);
 
 #endif /* __OSC_PARSER_H__ */

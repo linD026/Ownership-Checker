@@ -53,10 +53,9 @@ static __always_inline int blank(char ch)
     return 0;
 }
 
-static __always_inline int
-decode_obj_action(struct scan_file_control *sfc, struct object_struct *obj,
-                  int (*action)(struct scan_file_control *,
-                                struct object_struct *))
+static __always_inline int decode_obj_action(
+    struct scan_file_control *sfc, struct object_struct *obj,
+    int (*action)(struct scan_file_control *, struct object_struct *))
 {
     if (!action)
         return -EINVAL;
@@ -71,10 +70,9 @@ again:
     goto again;
 }
 
-static __always_inline int
-decode_bso_action(struct scan_file_control *sfc, struct bsobject_struct *bso,
-                  int (*action)(struct scan_file_control *,
-                                struct bsobject_struct *))
+static __always_inline int decode_bso_action(
+    struct scan_file_control *sfc, struct bsobject_struct *bso,
+    int (*action)(struct scan_file_control *, struct bsobject_struct *))
 {
     if (!action)
         return -EINVAL;
@@ -89,10 +87,9 @@ again:
     goto again;
 }
 
-static __always_inline int
-decode_fso_action(struct scan_file_control *sfc, struct fsobject_struct *fso,
-              int (*action)(struct scan_file_control *,
-                            struct fsobject_struct *))
+static __always_inline int decode_fso_action(
+    struct scan_file_control *sfc, struct fsobject_struct *fso,
+    int (*action)(struct scan_file_control *, struct fsobject_struct *))
 {
     if (!action)
         return -EINVAL;
@@ -143,6 +140,10 @@ static __always_inline int check_attr_type(struct scan_file_control *sfc,
     }
     return 0;
 }
+
+/*
+ * File scope object functions
+ */
 
 static int decode_type(struct scan_file_control *sfc,
                        struct fsobject_struct *fso)
@@ -244,7 +245,10 @@ out:
     return 0;
 }
 
-/* The argument, obj, is function scope object. */
+/*
+ * Block scope object functions
+ */
+
 static int decode_expr(struct scan_file_control *sfc,
                        struct bsobject_struct *bso)
 {
@@ -261,7 +265,6 @@ static int decode_expr(struct scan_file_control *sfc,
     return -EAGAIN;
 }
 
-/* The argument, obj, is function scope object. */
 static int decode_block_scope_object(struct scan_file_control *sfc,
                                      struct bsobject_struct *bso)
 {
@@ -273,6 +276,10 @@ static int decode_block_scope_object(struct scan_file_control *sfc,
 
     return -EAGAIN;
 }
+
+/*
+ * Parser related functions
+ */
 
 static int add_file_list(struct scan_file_control *sfc,
                          struct fsobject_struct *fso)
@@ -335,9 +342,9 @@ static int decode(struct scan_file_control *sfc)
                 decode_bso_action(sfc, bso, decode_block_scope_object);
             }
         }
-        
+
         dump_fsobject(fso, "first");
-        
+
         /* If object is structure, decode the member */
         /* If object is the variable, ... */
 
@@ -355,7 +362,7 @@ static int decode(struct scan_file_control *sfc)
 static void scan_file(struct scan_file_control *sfc)
 {
     for_each_line (sfc) {
-        int type = decode(sfc);
+        decode(sfc);
     }
 }
 
