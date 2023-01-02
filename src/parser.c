@@ -235,7 +235,7 @@ static int decode_function(struct scan_file_control *sfc,
     default:
         WARN_ON(!sfc->cached_fso, "unallocate fsobject");
         sfc->cached_fso->func = fso;
-        decode_action(sfc, &sfc->cached_fso->info, decode_type);
+        try_decode_action(sfc, &sfc->cached_fso->info, decode_type);
         decode_action(sfc, &sfc->cached_fso->info, decode_object_name);
         list_add_tail(&sfc->cached_fso->func_args_node, &fso->func_args_head);
         /* Check if there still have argument(s). */
@@ -256,6 +256,52 @@ out:
 /*
  * Block scope object functions
  */
+
+int get_function_call(struct scan_file_control *sfc,
+                      struct bsobject_struct *func_name)
+{
+    struct fsobject_struct *func = NULL;
+    
+    BUG_ON(sfc->cached_fso, "unclear (free) cache");
+
+    /* Find the function type. */
+    // TODO cross file function.
+    list_for_each (&sfc->fi->func_head) {
+        func = container_of(curr, struct fsobject_struct, node);
+        if (strncmp(func->info.name, func_name->info.name, MAX_NR_NAME) == 0)
+            break;
+    }
+    if (!func) {
+        bad(sfc, "Unkown function call");
+        BUG_ON(1, "function call name:%s", func_name->info.name);
+        return -EINVAL;
+    }
+    
+    sfc->cached_fso = func;
+    return 0;
+}
+
+static int decode_function_call(struct scan_file_control *sfc,
+                                struct bsobject_struct *func_name)
+{
+    struct fsobject_struct *func_call = sfc->cached_fso;
+
+    BUG_ON(!func_call, "unkown function call");
+
+    /* first, check the function args */
+    list_for_each (&func_name->fso->func_args_head) {
+        struct fsobject_struct *arg = container_of(curr, struct fsobject_struct,
+                                                   func_args_node);
+        
+        if (strncmp(arg->info.name, &sfc->buffer[sfc->offset],
+                    sfc->size - sfc->offset) == 0) {
+            // check the type
+            // change the ownership?
+        }
+    }
+
+
+}
 
 static int decode_block_scope_object_type(struct scan_file_control *sfc,
                                           struct bsobject_struct *bso)
@@ -307,7 +353,10 @@ static int decode_expr(struct scan_file_control *sfc,
     decode_action(sfc, new, decode_block_scope_object_type);
     switch (new->bso_type) {
     case bso_function_call:
-        // TODO
+        // Reuse the sfc->cached_fso
+        get_function_call(sfc, new);
+        decode_action(sfc, new, decode_function_call);
+        sfc->cached_fso = NULL;
         // get fso function object
         // decode args
         // check attry (default -> __mut)
