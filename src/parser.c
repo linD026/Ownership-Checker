@@ -18,8 +18,15 @@
             (fgets((sfc)->buffer, (sfc)->size, (sfc)->fi->file) != NULL); \
     })
 
+/*
+ * We don't check the terminal symbol '\0', since we should make sure that
+ * each time we iterate the buffer we won't skip any symbol.
+ * But for some times (i.e., debugging), we can add this.
+ * (sfc)->buffer[(sfc)->offset] == '\0' ||\
+ */
 #define line_end(sfc) \
-    ((sfc)->offset >= (sfc)->size || (sfc)->buffer[(sfc)->offset] == '\n')
+    ((sfc)->offset >= (sfc)->size ||\
+     (sfc)->buffer[(sfc)->offset] == '\n')
 
 #define buffer_for_each(sfc)                                     \
     for (char ch = (sfc)->buffer[(sfc)->offset]; !line_end(sfc); \
@@ -274,9 +281,15 @@ static int decode_expr(struct scan_file_control *sfc,
 {
     struct bsobject_struct *new = NULL;
 
-    pr_debug("expr:%s\n", &sfc->buffer[sfc->offset]);
+    pr_debug("expr:%s", &sfc->buffer[sfc->offset]);
     if (sfc->buffer[sfc->offset] == ';')
         return 0;
+
+
+    if ((sfc->buffer[sfc->offset] >= '0' && sfc->buffer[sfc->offset] <= '9') ||
+        sfc->buffer[sfc->offset] == '-' || sfc->buffer[sfc->offset] == '+') {
+        return -EAGAIN;
+    }
 
     new = bsobject_alloc(lvalue->fso);
 
@@ -306,18 +319,25 @@ static int decode_expr(struct scan_file_control *sfc,
         return -EAGAIN;
     }
 
+    //TODO to -EAGAIN
     return 0;
 }
 
 static int decode_block_scope_object(struct scan_file_control *sfc,
                                      struct bsobject_struct *bso);
-
+/*
+ * expr = ".., ..., ..." or "... || ... && (...)"
+ * for (expr; expr; expr)
+ * do { stmt } while (expr)
+ * while (expr)
+ * if (expr)
+ */
 static int decode_stmt(struct scan_file_control *sfc,
                        struct bsobject_struct *bso)
 {
     struct bsobject_struct *lvalue = NULL;
 
-    pr_debug("buffer:%s\n", &sfc->buffer[sfc->offset]);
+    pr_debug("buffer:%s", &sfc->buffer[sfc->offset]);
     /* End of the block scope */
     if (sfc->buffer[sfc->offset] == '}')
         return 0;
