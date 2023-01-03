@@ -7,6 +7,54 @@ make                # Build the program
 make clean          # Delete generated files
 ```
 
+## Example
+
+```
+$ make debug=1
+$ ./osc tests/test_function_definition.c 
+OSC Analyzes file: tests/test_function_definition.c
+OSC ERROR: Don't write to immutable object
+    --> tests/test_function_definition.c:3:7
+    |        a = 1;
+    | 
+    = ==== dump object ====
+    || function; func
+    || type; int  
+    || name: a
+    || info: fso_function_args
+    = =====================
+OSC ERROR: Don't write to borrowed object
+    --> tests/test_function_definition.c:5:8
+    |        *c = 3;
+    | 
+    = ==== dump object ====
+    || function; func
+    || type; int __brw *
+    || name: c
+    || info: fso_function_args
+    = =====================
+OSC ERROR: Don't write to immutable object
+    --> tests/test_function_definition.c:9:11
+    |            a = 1;
+    | 
+    = ==== dump object ====
+    || function; func
+    || type; int  
+    || name: a
+    || info: fso_function_args
+    = =====================
+OSC ERROR: Don't write to immutable object
+    --> tests/test_function_definition.c:15:7
+    |        a = 1;
+    | 
+    = ==== dump object ====
+    || function; func2
+    || type; int  
+    || name: a
+    || info: fso_function_args
+    = =====================
+```
+
 ## Sample
 
 ```cpp

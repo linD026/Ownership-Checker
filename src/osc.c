@@ -4,6 +4,7 @@
 #include <osc/print.h>
 #include <osc/debug.h>
 #include <unistd.h>
+#include <getopt.h>
 #include <string.h>
 #include <stdlib.h>
 

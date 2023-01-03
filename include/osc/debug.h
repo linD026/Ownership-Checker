@@ -45,7 +45,7 @@ static __always_inline void dump_stack(void)
 
 #else /* ndef CONFIG_DEBUG */
 
-static __always_inline void dump_stack(void);
+static __always_inline void dump_stack(void) {}
 #define BUG_ON(cond, fmt, ...) \
     do {                       \
     } while (0)
