@@ -1,5 +1,5 @@
 #include <osc/parser.h>
-#include <osc/print.h>
+#include <osc/debug.h>
 #include <osc/check_list.h>
 #include <stdio.h>
 

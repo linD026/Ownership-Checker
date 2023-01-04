@@ -25,8 +25,7 @@
  * (sfc)->buffer[(sfc)->offset] == '\0' ||\
  */
 #define line_end(sfc) \
-    ((sfc)->offset >= (sfc)->size ||\
-     (sfc)->buffer[(sfc)->offset] == '\n')
+    ((sfc)->offset >= (sfc)->size || (sfc)->buffer[(sfc)->offset] == '\n')
 
 #define buffer_for_each(sfc)                                     \
     for (char ch = (sfc)->buffer[(sfc)->offset]; !line_end(sfc); \
@@ -261,7 +260,7 @@ int get_function_call(struct scan_file_control *sfc,
                       struct bsobject_struct *func_name)
 {
     struct fsobject_struct *func = NULL;
-    
+
     BUG_ON(sfc->cached_fso, "unclear (free) cache");
 
     /* Find the function type. */
@@ -276,7 +275,7 @@ int get_function_call(struct scan_file_control *sfc,
         BUG_ON(1, "function call name:%s", func_name->info.name);
         return -EINVAL;
     }
-    
+
     sfc->cached_fso = func;
     return 0;
 }
@@ -290,17 +289,15 @@ static int decode_function_call(struct scan_file_control *sfc,
 
     /* first, check the function args */
     list_for_each (&func_name->fso->func_args_head) {
-        struct fsobject_struct *arg = container_of(curr, struct fsobject_struct,
-                                                   func_args_node);
-        
+        struct fsobject_struct *arg =
+            container_of(curr, struct fsobject_struct, func_args_node);
+
         if (strncmp(arg->info.name, &sfc->buffer[sfc->offset],
                     sfc->size - sfc->offset) == 0) {
             // check the type
             // change the ownership?
         }
     }
-
-
 }
 
 static int decode_block_scope_object_type(struct scan_file_control *sfc,
@@ -330,7 +327,6 @@ static int decode_expr(struct scan_file_control *sfc,
     pr_debug("expr:%s", &sfc->buffer[sfc->offset]);
     if (sfc->buffer[sfc->offset] == ';')
         return 0;
-
 
     if ((sfc->buffer[sfc->offset] >= '0' && sfc->buffer[sfc->offset] <= '9') ||
         sfc->buffer[sfc->offset] == '-' || sfc->buffer[sfc->offset] == '+') {

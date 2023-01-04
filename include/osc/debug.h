@@ -3,9 +3,30 @@
 
 #include <osc/compiler.h>
 
-#if defined(CONFIG_DEBUG)
+#include <stdio.h>
 
-#include <osc/print.h>
+#define debug_stream stdout
+#define err_stream stderr
+
+#define print(fmt, ...)                            \
+    do {                                           \
+        fprintf(debug_stream, fmt, ##__VA_ARGS__); \
+    } while (0)
+
+#define pr_info(fmt, ...)                                             \
+    do {                                                              \
+        print("\e[32m[INFO]\e[0m %s:%d:%s: " fmt, __FILE__, __LINE__, \
+              __func__, ##__VA_ARGS__);                               \
+    } while (0)
+
+#define pr_err(fmt, ...)                                      \
+    do {                                                      \
+        fprintf(err_stream,                                   \
+                "\e[32m[ERROR]\e[0m %s:%d:%s: "               \
+                "\e[31m" fmt "\e[0m",                         \
+                __FILE__, __LINE__, __func__, ##__VA_ARGS__); \
+    } while (0)
+
 #include <stdlib.h>
 #include <execinfo.h>
 
@@ -42,20 +63,5 @@ static __always_inline void dump_stack(void)
     } while (0)
 
 #define pr_debug(fmt, ...) pr_info("DEBUG: " fmt, ##__VA_ARGS__)
-
-#else /* ndef CONFIG_DEBUG */
-
-static __always_inline void dump_stack(void) {}
-#define BUG_ON(cond, fmt, ...) \
-    do {                       \
-    } while (0)
-#define WARN_ON(cond, fmt, ...) \
-    do {                        \
-    } while (0)
-#define pr_debug(fmt, ...) \
-    do {                   \
-    } while (0)
-
-#endif /* ifdef CONFIG_DEBUG */
 
 #endif /* __OSC_DEBUG_H__ */
