@@ -46,4 +46,16 @@
 #define __UNIQUE_ID(prefix) __PASTE(__PASTE(__UNIQUE_ID_, prefix), __LINE__)
 #endif
 
+#ifndef ARRAY_SIZE
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
+#endif
+
+#ifndef min
+#define min(l, r) ((l < r) ? l : r)
+#endif
+
+#ifndef max
+#define max(l, r) ((l > r) ? l : r)
+#endif
+
 #endif /* __OSC_COMPILER_H__ */

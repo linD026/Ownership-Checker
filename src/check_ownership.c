@@ -12,14 +12,6 @@
 const struct type_info var_attr_table[] = { VA_ENTRY(__brw, BRW),
                                             VA_ENTRY(__mut, MUT) };
 
-void bad(struct scan_file_control *sfc, const char *warning)
-{
-    print("\e[1m\e[31mOSC ERROR\e[0m\e[0m: \e[1m%s\e[0m\n", warning);
-    print("    \e[36m-->\e[0m %s:%lu:%u\n", sfc->fi->name, sfc->line,
-          sfc->offset);
-    print("    \e[36m|\e[0m    %s", sfc->buffer);
-}
-
 void bad_fsobject(struct fsobject_struct *fso)
 {
     print("    \e[36m|\e[0m \n"
@@ -48,7 +40,7 @@ int check_func_args_write(struct scan_file_control *sfc,
         struct fsobject_struct *fso_arg =
             container_of(curr, struct fsobject_struct, func_args_node);
         if (strncmp(fso_arg->info.name, bso->info.name, MAX_NR_NAME) == 0) {
-            struct object_type_struct *arg_ot = &fso_arg->info.ot;
+            struct token *arg_ot = &fso_arg->info.ot;
             if (arg_ot->attr_type == VAR_ATTR_DEFAULT) {
                 bad(sfc, "Don't write to immutable object");
                 bad_fsobject(fso_arg);

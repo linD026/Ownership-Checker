@@ -1,7 +1,6 @@
 #include <osc/parser.h>
 #include <osc/compiler.h>
 #include <osc/list.h>
-#include <osc/print.h>
 #include <osc/debug.h>
 #include <unistd.h>
 #include <getopt.h>
@@ -71,6 +70,8 @@ int main(int argc, char *argv[])
         struct file_info *fi = container_of(curr, struct file_info, node);
         parser(fi);
     }
+
+    symbol_id_container_release();
 
     return 0;
 }

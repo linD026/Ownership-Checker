@@ -2,7 +2,6 @@
 #define __OSC_DEBUG_H__
 
 #include <osc/compiler.h>
-
 #include <stdio.h>
 
 #define debug_stream stdout

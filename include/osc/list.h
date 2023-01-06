@@ -9,6 +9,11 @@ struct list_head {
     struct list_head *prev;
 };
 
+#define LIST_HEAD_INIT(name) \
+    {                        \
+        &(name), &(name)     \
+    }
+
 static inline void list_init(struct list_head *node)
 {
     node->next = node;
