@@ -183,14 +183,32 @@ enum {
 
     /* sym_table start */
 
-    /* attr */
+    /* attr start - brw */
     sym_attr_brw,
     sym_attr_mut,
     sym_attr_clone,
+    /* attr end - clone */
+
+    /* sym prefix type start - unsigned */
+    sym_unsigned,
+    sym_signed,
+    /* sym prefix type end - signed */
+
+    /* sym storage class start - auto */
+    sym_auto,
+    sym_register,
+    sym_static,
+    sym_extern,
+    /* sym storage class end - extern */
 
     /* sym type start - int */
     sym_int,
+    sym_long,
+    sym_short,
+    sym_char,
     sym_double,
+    sym_float,
+    sym_struct,
     sym_void,
     /* sym type end - void */
 
@@ -200,7 +218,11 @@ enum {
     sym_for,
     sym_if,
     sym_else,
+    sym_switch,
+    sym_case,
     sym_return,
+    sym_true, /* C23 keyword true, false */
+    sym_false,
 
     sym_malloc,
     sym_free,
@@ -208,6 +230,7 @@ enum {
     /* sym id start - ptr_assign */
     sym_ptr_assign, // ->
     sym_logic_or, // ||
+    sym_logic_and, // &&
 
     /* sym_table end */
 
@@ -223,6 +246,7 @@ enum {
     sym_gt, // >
     sym_eq, // =
     sym_comma, // ,
+    sym_dot, // .
     sym_seq_point, // ;
     /* sym one char end - seq point */
     /* sym id end - seq point */
@@ -234,6 +258,15 @@ enum {
     sym_id,
 };
 
+#define sym_attr_start sym_attr_brw
+#define sym_attr_end sym_attr_clone
+
+#define sym_prefix_type_start sym_unsigned
+#define sym_prefix_type_end sym_signed
+
+#define sym_storage_class_start sym_auto
+#define sym_storage_class_end sym_extern
+
 #define sym_type_start sym_int
 #define sym_type_end sym_void
 
@@ -243,6 +276,9 @@ enum {
 /* Decode the id until the symbol is between sym_id_start to sym_id_end. */
 #define sym_id_start sym_ptr_assign
 #define sym_id_end sym_seq_point
+
+#define range_in_sym(range_name, number) \
+    (sym_##range_name##_start <= number && number <= sym_##range_name##_end)
 
 void symbol_id_container_release(void);
 int get_token(struct scan_file_control *sfc, struct symbol **id);

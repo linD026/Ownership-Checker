@@ -9,9 +9,24 @@ static struct symbol sym_table[] = {
     __SYM_ENTRY(__mut, sym_attr_mut),
     __SYM_ENTRY(__clone, sym_attr_clone),
 
+    /* prefix type */
+    SYM_ENTRY(unsigned),
+    SYM_ENTRY(signed),
+ 
+    /* storage type */
+    SYM_ENTRY(auto),
+    SYM_ENTRY(register),
+    SYM_ENTRY(static),
+    SYM_ENTRY(extern),
+
     /* type */
     SYM_ENTRY(int),
+    SYM_ENTRY(long),
+    SYM_ENTRY(short),
+    SYM_ENTRY(char),
     SYM_ENTRY(double),
+    SYM_ENTRY(float),
+    SYM_ENTRY(struct),
     SYM_ENTRY(void),
 
     /* other keywords */
@@ -20,7 +35,11 @@ static struct symbol sym_table[] = {
     SYM_ENTRY(for),
     SYM_ENTRY(if),
     SYM_ENTRY(else),
+    SYM_ENTRY(switch),
+    SYM_ENTRY(case),
     SYM_ENTRY(return),
+    SYM_ENTRY(true),
+    SYM_ENTRY(false),
 
     /* Allocate function */
     SYM_ENTRY(malloc),
@@ -29,7 +48,7 @@ static struct symbol sym_table[] = {
     /* sym id start */
     __SYM_ENTRY(->, sym_ptr_assign),
     __SYM_ENTRY(||, sym_logic_or),
-    /* sym id end */
+    __SYM_ENTRY(&&, sym_logic_and),
 };
 
 static int sym_one_char(struct scan_file_control *sfc)
@@ -57,6 +76,8 @@ static int sym_one_char(struct scan_file_control *sfc)
         return sym_eq;
     case ',':
         return sym_comma;
+    case '.':
+        return sym_dot;
     case ';':
         return sym_seq_point;
     default:
@@ -115,7 +136,7 @@ static int __skip_comments(struct scan_file_control *sfc)
 
 static int skip_comments(struct scan_file_control *sfc)
 {
-    try_decode_action(sfc, __skip_comments);
+    return try_decode_action(sfc, __skip_comments);
 }
 
 struct symbol_id_struct {
