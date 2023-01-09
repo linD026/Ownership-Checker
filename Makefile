@@ -8,6 +8,7 @@ CFLAGS:=-g
 CFLAGS+=-std=c11
 CFLAGS+=-Wall
 CFLAGS+=-O1
+CFLAGS+=-rdynamic
 
 DEBUG_FLAGS=
 ifneq ($(strip $(verbose)),)

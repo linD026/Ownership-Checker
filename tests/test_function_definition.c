@@ -1,4 +1,4 @@
-int func(int a, int __mut b, int __brw *c, int __mut __brw *d)
+int func(int a, int __mut b, int __brw *c, int __brw *d)
 {
     a = 1;
     b = 2;
@@ -10,7 +10,7 @@ int func(int a, int __mut b, int __brw *c, int __mut __brw *d)
     }
 }
 
-int func2(int a, int __mut b, int __brw *c, int __mut __brw *d)
+int func2(int a, int __mut b, int __brw *c, int __brw *d)
 {
     a = 1;
     b = 3;

@@ -20,15 +20,24 @@ struct symbol {
 
 #define SYM_ENTRY(_name) __SYM_ENTRY(_name, sym_##_name)
 
+struct object {
+    int storage_class;
+    int type;
+    int is_struct;
+    struct symbol *struct_id;
+    int is_ptr;
+    int attr;
+    struct symbol *id;
+};
+
 /* the token should be related to pointer type. */
 struct variable {
-    struct symbol *type;
-    struct symbol *attr;
-    struct symbol *id;
+    struct object object;
     struct list_head scope_node;
+    struct list_head structure_node;
     struct list_head func_scope_node;
 
-    /* For the struct function only */
+    /* For the function only */
     struct list_head parameter_node;
 };
 
@@ -37,14 +46,25 @@ struct scope {
     struct list_head scope_var_head;
 };
 
+struct structure {
+    /* variable */
+    struct list_head var_head;
+
+    /* For struct file_info */
+    struct list_head node;
+};
+
 struct function {
     struct list_head func_scope_var_head;
+    /* If it is function declaration the func_scope_head is empty. */
     struct list_head func_scope_head;
 
     /* function info */
-    int return_type;
-    int is_return_ptr;
+    struct object object;
     struct list_head parameter_var_head;
+
+    /* For struct file_info */
+    struct list_head node;
 };
 
 struct file_info {
@@ -54,6 +74,7 @@ struct file_info {
     struct list_head node;
 
     struct list_head func_head;
+    struct list_head struct_head;
 };
 
 #define MAX_BUFFER_LEN 128
@@ -64,19 +85,26 @@ struct scan_file_control {
     unsigned int size;
     unsigned int offset;
     unsigned long line;
+
     struct function *function;
 };
 
 int parser(struct file_info *fi);
 
-static __always_inline void
-bad(struct scan_file_control *sfc, const char *warning)
+static __always_inline void bad(struct scan_file_control *sfc,
+                                const char *warning)
 {
     print("\e[1m\e[31mOSC ERROR\e[0m\e[0m: \e[1m%s\e[0m\n", warning);
     print("    \e[36m-->\e[0m %s:%lu:%u\n", sfc->fi->name, sfc->line,
           sfc->offset);
     print("    \e[36m|\e[0m    %s", sfc->buffer);
+    print("         ");
+    for (int i = 0; i < sfc->offset; i++)
+        print(" ");
+    print("\e[31m^\e[0m\n");
 }
+
+#define syntax_error(sfc) bad(sfc, "syntax error")
 
 static __always_inline int blank(char ch)
 {
@@ -150,6 +178,8 @@ static __always_inline int blank(char ch)
         }                                           \
         if (next_line(sfc))                         \
             goto da_##id##_again;                   \
+        else                                        \
+            ret = -ENODATA;                         \
         da_##id##_out:;                             \
     } while (0)
 
@@ -189,11 +219,6 @@ enum {
     sym_attr_clone,
     /* attr end - clone */
 
-    /* sym prefix type start - unsigned */
-    sym_unsigned,
-    sym_signed,
-    /* sym prefix type end - signed */
-
     /* sym storage class start - auto */
     sym_auto,
     sym_register,
@@ -203,10 +228,18 @@ enum {
 
     /* sym type start - int */
     sym_int,
-    sym_long,
     sym_short,
+    sym_long,
+    sym_long_long,
+    sym_unsigned_int,
+    sym_unsigned_short,
+    sym_unsigned_long,
+    sym_unsigned_long_long,
     sym_char,
+    sym_signed_char,
+    sym_unsigned_char,
     sym_double,
+    sym_long_double,
     sym_float,
     sym_struct,
     sym_void,
@@ -261,9 +294,6 @@ enum {
 #define sym_attr_start sym_attr_brw
 #define sym_attr_end sym_attr_clone
 
-#define sym_prefix_type_start sym_unsigned
-#define sym_prefix_type_end sym_signed
-
 #define sym_storage_class_start sym_auto
 #define sym_storage_class_end sym_extern
 
@@ -282,5 +312,55 @@ enum {
 
 void symbol_id_container_release(void);
 int get_token(struct scan_file_control *sfc, struct symbol **id);
+int cmp_token(struct symbol *l, struct symbol *r);
+const char *token_name(int n);
+
+static __always_inline char debug_sym_one_char(int sym)
+{
+    switch (sym) {
+    case sym_left_paren:
+        return '(';
+    case sym_right_paren:
+        return ')';
+    case sym_left_brace:
+        return '{';
+    case sym_right_brace:
+        return '}';
+    case sym_left_sq_brace:
+        return '[';
+    case sym_right_sq_brace:
+        return ']';
+    case sym_aster:
+        return '*';
+    case sym_lt:
+        return '<';
+    case sym_gt:
+        return '>';
+    case sym_eq:
+        return '=';
+    case sym_comma:
+        return ',';
+    case sym_dot:
+        return '.';
+    case sym_seq_point:
+        return ';';
+    case -ENODATA:
+        return -ENODATA;
+    default:
+        WARN_ON(1, "failed:%d", sym);
+        return sym;
+    }
+}
+
+#define debug_token(sfc, _sym, _symbol)                                       \
+    do {                                                                      \
+        if (_symbol == NULL) {                                                \
+            int __c = debug_sym_one_char(_sym);                               \
+            if (__c != -ENODATA)                                              \
+                pr_info("char          : |%c|\n", (char)__c);                 \
+        } else                                                                \
+            pr_info("symbol(%2d, %2u): |%s|\n", _symbol->flags, _symbol->len, \
+                    _symbol->name);                                           \
+    } while (0)
 
 #endif /* __OSC_PARSER_H__ */

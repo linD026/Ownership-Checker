@@ -8,10 +8,6 @@ static struct symbol sym_table[] = {
     __SYM_ENTRY(__brw, sym_attr_brw),
     __SYM_ENTRY(__mut, sym_attr_mut),
     __SYM_ENTRY(__clone, sym_attr_clone),
-
-    /* prefix type */
-    SYM_ENTRY(unsigned),
-    SYM_ENTRY(signed),
  
     /* storage type */
     SYM_ENTRY(auto),
@@ -21,10 +17,18 @@ static struct symbol sym_table[] = {
 
     /* type */
     SYM_ENTRY(int),
-    SYM_ENTRY(long),
     SYM_ENTRY(short),
+    SYM_ENTRY(long),
+    __SYM_ENTRY(long long, sym_long_long),
+    __SYM_ENTRY(unsigned int, sym_unsigned_int),
+    __SYM_ENTRY(unsigned short, sym_unsigned_short),
+    __SYM_ENTRY(unsigned long, sym_unsigned_long),
+    __SYM_ENTRY(unsigned long long, sym_unsigned_long_long),
     SYM_ENTRY(char),
+    __SYM_ENTRY(signed char, sym_signed_char),
+    __SYM_ENTRY(unsigned char, sym_unsigned_char),
     SYM_ENTRY(double),
+    __SYM_ENTRY(long double, sym_long_double),
     SYM_ENTRY(float),
     SYM_ENTRY(struct),
     SYM_ENTRY(void),
@@ -53,38 +57,54 @@ static struct symbol sym_table[] = {
 
 static int sym_one_char(struct scan_file_control *sfc)
 {
+    int sym = sym_dump;
     switch (sfc->buffer[sfc->offset]) {
     case '(':
-        return sym_left_paren;
+        sym = sym_left_paren;
+        break;
     case ')':
-        return sym_right_paren;
+        sym = sym_right_paren;
+        break;
     case '{':
-        return sym_left_brace;
+        sym = sym_left_brace;
+        break;
     case '}':
-        return sym_right_brace;
+        sym = sym_right_brace;
+        break;
     case '[':
-        return sym_left_sq_brace;
+        sym = sym_left_sq_brace;
+        break;
     case ']':
-        return sym_right_sq_brace;
+        sym = sym_right_sq_brace;
+        break;
     case '*':
-        return sym_aster;
+        sym = sym_aster;
+        break;
     case '<':
-        return sym_lt;
+        sym = sym_lt;
+        break;
     case '>':
-        return sym_gt;
+        sym = sym_gt;
+        break;
     case '=':
-        return sym_eq;
+        sym = sym_eq;
+        break;
     case ',':
-        return sym_comma;
+        sym = sym_comma;
+        break;
     case '.':
-        return sym_dot;
+        sym = sym_dot;
+        break;
     case ';':
-        return sym_seq_point;
+        sym = sym_seq_point;
+        break;
     default:
         //pr_debug("%c\n", sfc->buffer[sfc->offset]);
-        return sym_dump;
+        goto failed;
     }
-    return sym_dump;
+    sfc->offset++;
+failed:
+    return sym;
 }
 
 static __always_inline int check_symbol(struct scan_file_control *sfc,
@@ -94,7 +114,7 @@ static __always_inline int check_symbol(struct scan_file_control *sfc,
         return 0;
     //pr_debug("check (%s, %u): %s", sym->name, sym->len, &sfc->buffer[sfc->offset]);
     if (strncmp(&sfc->buffer[sfc->offset], sym->name, sym->len) == 0) {
-        sfc->offset += sym->len - 1;
+        sfc->offset += sym->len;
         return 1;
     }
     return 0;
@@ -180,20 +200,35 @@ static int insert_sym_id(struct scan_file_control *sfc, struct symbol **id)
 
     while (!line_end(sfc)) {
         if (__check_symbol_table(sfc, id, sym_id_start) != sym_dump ||
-            sym_one_char(sfc) != sym_dump ||
-            blank(sfc->buffer[sfc->offset])) {
-            break;
+            sym_one_char(sfc) != sym_dump) {
+            /*
+             * Following show the offsets value,
+             * so the len of id is sfc->offset - offset + 1:
+             *
+             *    +-- offset            +-- sfc->offset
+             *    V                     V
+             *  [ i d e n t i f i e r K D ]
+             *
+             *  - K is the keyword, "(", "{", etc.
+             *  - D, dump char, after K.
+             */
+            sfc->offset--;
+            goto get_id;
         }
+        if (blank(sfc->buffer[sfc->offset]))
+            goto get_id;
         sfc->offset++;
     }
 
+    return sym_dump;
+
+get_id:
     /*
-     * Following show the offsets value, so the len of id is sfc->offset - offset + 1:
-     *    +-- offset        +-- sfc->offset
-     *    V                 V
-     *  [ i d e n t i f i e r K ]
      *
-     *  - K is the keyword.
+     *    +-- offset          +-- sfc->offset
+     *    V                   V
+     *  [ i d e n t i f i e r K D ]
+     *
      */
     *id = search_sym_id(&sfc->buffer[orig_offset], sfc->offset - orig_offset);
     if (*id)
@@ -210,11 +245,9 @@ static int insert_sym_id(struct scan_file_control *sfc, struct symbol **id)
     (*id)->name = malloc(symbol_id->sym.len + 1);
     BUG_ON(!(*id)->name, "malloc");
     strncpy((*id)->name, &sfc->buffer[orig_offset], (*id)->len);
+    (*id)->name[(*id)->len] = '\0';
 
 out:
-    /* if we had the offset, roll back */
-    if (sfc->offset != orig_offset)
-        sfc->offset--;
     return sym_id;
 }
 
@@ -223,7 +256,7 @@ static int __get_token(struct scan_file_control *sfc, struct symbol **id)
     int sym = sym_dump;
 
     if (skip_comments(sfc))
-        return sym;
+        return -EAGAIN;
 
     /* check the keyword */
     sym = check_symbol_table(sfc, id);
@@ -235,8 +268,7 @@ static int __get_token(struct scan_file_control *sfc, struct symbol **id)
     if (sym != sym_dump)
         goto out;
 
-    /* check num. */
-
+    /* TODO: check num. */
 
     sym = insert_sym_id(sfc, id);
     if (sym == sym_dump)
@@ -247,5 +279,22 @@ out:
 
 int get_token(struct scan_file_control *sfc, struct symbol **id)
 {
+    *id = NULL;
     return try_decode_action(sfc, __get_token, id);
+}
+
+int cmp_token(struct symbol *l, struct symbol *r)
+{
+    if (l->flags != r->flags)
+        return 0;
+    if (!(strncmp(l->name, r->name, max(l->len, r->len)) == 0))
+        return 0;
+    return 1;
+}
+
+const char *token_name(int n)
+{
+    BUG_ON(n < 0 || n >= ARRAY_SIZE(sym_table), "out of scope:%d", n);
+
+    return sym_table[n].name;
 }

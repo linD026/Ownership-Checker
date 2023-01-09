@@ -27,23 +27,277 @@
  *      4. check all the token's attr.
  */
 
-static int decode_file_scope(struct scan_file_control *sfc)
+static struct structure *search_structure(struct symbol *id)
+{
+    return NULL;
+}
+
+static void object_init(struct object *object)
+{
+    object->storage_class = sym_dump;
+    object->type = sym_dump;
+    object->is_struct = 0;
+    object->struct_id = NULL;
+    object->is_ptr = 0;
+    object->attr = sym_dump;
+    object->id = NULL;
+}
+
+static int cmp_object(struct object *l, struct object *r)
+{
+    if (l->storage_class != r->storage_class)
+        return 0;
+    if (l->type != r->type)
+        return 0;
+    if (l->is_struct && cmp_token(l->struct_id, r->struct_id))
+        return 0;
+    if (l->is_ptr != r->is_ptr)
+        return 0;
+    if (l->attr != r->attr)
+        return 0;
+    if (!cmp_token(l->id, r->id))
+        return 0;
+    return 1;
+}
+
+static void copy_object(struct object *dst, struct object *src)
+{
+    dst->storage_class = src->storage_class;
+    dst->type = src->type;
+    dst->is_struct = src->is_struct;
+    dst->struct_id = src->struct_id;
+    dst->is_ptr = src->is_ptr;
+    dst->attr = src->attr;
+    dst->id = src->id;
+}
+
+static int get_object(struct scan_file_control *sfc, struct object *obj)
 {
     struct symbol *symbol = NULL;
     int sym = sym_dump;
 
+    object_init(obj);
+
     sym = get_token(sfc, &symbol);
-    if (symbol == NULL)
-        pr_info( "char      : %c\n", sfc->buffer[sfc->offset]);
-    else
-        pr_info("symbol(%2u): |%s|\n", symbol->len, symbol->name);
-    return -EAGAIN;
+    debug_token(sfc, sym, symbol);
+    /* variable declaration */
+    if (range_in_sym(storage_class, sym)) {
+        obj->storage_class = sym;
+        sym = get_token(sfc, &symbol);
+        debug_token(sfc, sym, symbol);
+    }
+    if (range_in_sym(type, sym)) {
+        obj->type = sym;
+        if (sym == sym_struct) {
+            /* structure */
+            bad(sfc, "Unsupport structure");
+            BUG_ON(1, "unsupport");
+            sym = get_token(sfc, &symbol);
+            if (sym == sym_id) {
+                // struct structure __allow_unused *tmp =  search_structure();
+                obj->struct_id = symbol;
+            } else {
+                syntax_error(sfc);
+                return -EINVAL;
+            }
+        }
+        sym = get_token(sfc, &symbol);
+        debug_token(sfc, sym, symbol);
+    }
+attr_again:
+    if (range_in_sym(attr, sym)) {
+        // TODO: mutiple attr
+        obj->attr = sym;
+        sym = get_token(sfc, &symbol);
+        debug_token(sfc, sym, symbol);
+        goto attr_again;
+    }
+    if (sym == sym_aster) {
+        obj->is_ptr = 1;
+        sym = get_token(sfc, &symbol);
+        debug_token(sfc, sym, symbol);
+    }
+    if (sym == sym_id)
+        obj->id = symbol;
+
+    return sym;
+}
+
+static void raw_debug_object(struct object *obj)
+{
+    if (obj->storage_class != sym_dump)
+        print("%s ", token_name(obj->storage_class));
+    if (obj->type != sym_dump)
+        print("%s ", token_name(obj->type));
+    if (obj->is_struct)
+        print("%s ", obj->struct_id->name);
+    if (obj->attr != sym_dump)
+        print("%s ", token_name(obj->attr));
+    if (obj->is_ptr)
+        print("* ");
+    if (obj->id)
+        print("%s", obj->id->name);
+}
+
+static void debug_object(struct object *obj, const char *note)
+{
+    pr_debug("[OBJECT] start : %s\n", note);
+    raw_debug_object(obj);
+    print("\n");
+    pr_debug("[OBJECT] end\n");
+}
+
+static struct variable *var_alloc(void)
+{
+    struct variable *var = malloc(sizeof(struct variable));
+    BUG_ON(!var, "malloc");
+
+    object_init(&var->object);
+    list_init(&var->scope_node);
+    list_init(&var->structure_node);
+    list_init(&var->func_scope_node);
+    list_init(&var->parameter_node);
+
+    return var;
+}
+
+static struct function *search_function(struct file_info *fi,
+                                        struct object *obj)
+{
+    list_for_each (&fi->func_head) {
+        struct function *func = container_of(curr, struct function, node);
+        if (cmp_object(&func->object, obj))
+            return func;
+    }
+    return NULL;
+}
+
+static struct function *insert_function(struct file_info *fi,
+                                        struct object *obj)
+{
+    struct function *func = search_function(fi, obj);
+
+    if (func) {
+        BUG_ON(!list_empty(&func->func_scope_head),
+               "Duplicate function definition");
+        return func;
+    }
+    func = malloc(sizeof(struct function));
+    BUG_ON(!func, "malloc");
+
+    list_init(&func->func_scope_var_head);
+    list_init(&func->func_scope_head);
+    copy_object(&func->object, obj);
+    list_init(&func->parameter_var_head);
+    list_add_tail(&func->node, &fi->func_head);
+
+    return func;
+}
+
+static void debug_function(struct scan_file_control *sfc,
+                           struct function *function)
+{
+    raw_debug_object(&function->object);
+    print(" (");
+    if (unlikely(list_empty(&function->parameter_var_head)))
+        print("void");
+    else {
+        list_for_each (&function->parameter_var_head) {
+            struct variable *param =
+                container_of(curr, struct variable, parameter_node);
+            raw_debug_object(&param->object);
+            if (curr->next != &function->parameter_var_head)
+                print(", ");
+        }
+    }
+    print(")");
+
+    // TODO: scope object
+    print("\n");
+}
+
+static int decode_function_scope(struct scan_file_control *sfc)
+{
+    struct symbol *symbol = NULL;
+    int sym = sym_dump;
+    while (sym = get_token(sfc, &symbol), sym != -ENODATA) {
+        debug_token(sfc, sym, symbol);
+        if (sym == sym_left_brace)
+            decode_function_scope(sfc);
+        if (sym == sym_right_brace)
+            return 0;
+    }
+    return 0;
+}
+
+static int decode_file_scope(struct scan_file_control *sfc)
+{
+    struct object obj;
+    struct symbol *buffer = NULL;
+    int sym = sym_dump;
+
+    /*
+     * Get the object like:
+     * - struct struture
+     * - int __attr *function
+     */
+    if (get_object(sfc, &obj) == -ENODATA)
+        return -ENODATA;
+
+    /* Struture */
+    // if next token is "id (" is should be function.
+    // Otherwise is can be struct declara or var declara.
+
+    /* Function */
+    sfc->function = insert_function(sfc->fi, &obj);
+
+    sym = get_token(sfc, &buffer);
+    if (sym == sym_left_paren) {
+        while (1) {
+            struct variable *param = var_alloc();
+
+            sym = get_object(sfc, &param->object);
+            if (unlikely(sym != sym_id && param->object.type == sym_void)) {
+                free(param);
+                break;
+            } else
+                list_add_tail(&param->parameter_node,
+                              &sfc->function->parameter_var_head);
+            sym = get_token(sfc, &buffer);
+            if (sym != sym_comma)
+                break;
+        }
+        if (sym != sym_right_paren) {
+            WARN_ON(1, "syntax error %c", debug_sym_one_char(sym));
+            syntax_error(sfc);
+        }
+        sym = get_token(sfc, &buffer);
+        /* function declaration */
+        if (sym == sym_seq_point)
+            goto out;
+        else if (sym == sym_left_brace) {
+            debug_function(sfc, sfc->function);
+            decode_function_scope(sfc);
+        } else {
+            WARN_ON(1, "syntax error");
+            syntax_error(sfc);
+        }
+    } else {
+        WARN_ON(1, "syntax error");
+        syntax_error(sfc);
+    }
+
+out:
+    sfc->function = NULL;
+    return 0;
 }
 
 static void scan_file(struct scan_file_control *sfc)
 {
-    for_each_line (sfc) {
-        decode_action(sfc, decode_file_scope);
+    if (next_line(sfc)) {
+        //decode_action(sfc, decode_file_scope);
+        while (decode_file_scope(sfc) != -ENODATA)
+            ;
     }
 }
 
@@ -54,10 +308,12 @@ int parser(struct file_info *fi)
         .size = MAX_BUFFER_LEN,
         .offset = 0,
         .line = 0,
+        .function = NULL,
     };
 
     fi->file = fopen(fi->name, "r");
     BUG_ON(!fi->file, "fopen");
+    rewind(fi->file);
     scan_file(&sfc);
     fclose(fi->file);
 
