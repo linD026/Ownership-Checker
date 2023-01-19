@@ -39,7 +39,7 @@ static void object_init(struct object *object)
     object->is_struct = 0;
     object->struct_id = NULL;
     object->is_ptr = 0;
-    object->attr = sym_dump;
+    object->attr = 0;
     object->id = NULL;
 }
 
@@ -69,6 +69,19 @@ static void copy_object(struct object *dst, struct object *src)
     dst->is_ptr = src->is_ptr;
     dst->attr = src->attr;
     dst->id = src->id;
+}
+
+static int get_attr_flag(int sym)
+{
+    switch (sym) {
+    case sym_attr_brw:
+        return ATTR_FLAGS_BRW;
+    case sym_attr_clone:
+        return ATTR_FLAGS_CLONE;
+    case sym_attr_mut:
+        return ATTR_FLAGS_MUT;
+    }
+    return 0;
 }
 
 static int get_object(struct scan_file_control *sfc, struct object *obj)
@@ -107,7 +120,7 @@ static int get_object(struct scan_file_control *sfc, struct object *obj)
 attr_again:
     if (range_in_sym(attr, sym)) {
         // TODO: mutiple attr
-        obj->attr = sym;
+        obj->attr |= get_attr_flag(sym);
         sym = get_token(sfc, &symbol);
         debug_token(sfc, sym, symbol);
         goto attr_again;
@@ -131,10 +144,16 @@ static void raw_debug_object(struct object *obj)
         print("%s ", token_name(obj->type));
     if (obj->is_struct)
         print("%s ", obj->struct_id->name);
-    if (obj->attr != sym_dump)
-        print("%s ", token_name(obj->attr));
+    if (obj->attr & ATTR_FLAS_MASK) {
+        if (obj->attr & ATTR_FLAGS_BRW)
+            print("__brw ");
+        if (obj->attr & ATTR_FLAGS_CLONE)
+            print("__clone ");
+        if (obj->attr & ATTR_FLAGS_MUT)
+            print("__mut ");
+    }
     if (obj->is_ptr)
-        print("* ");
+        print("*");
     if (obj->id)
         print("%s", obj->id->name);
 }
@@ -216,16 +235,28 @@ static void debug_function(struct scan_file_control *sfc,
     print("\n");
 }
 
+static int decode_stmt(struct scan_file_control *sfc,
+                       struct symbol *symbol, int sym)
+{
+    do {
+        debug_token(sfc, sym, symbol);
+        if (sym == sym_seq_point)
+            return 0;
+    } while (sym = get_token(sfc, &symbol), sym != -ENODATA);
+
+    return 0;
+}
+
 static int decode_function_scope(struct scan_file_control *sfc)
 {
     struct symbol *symbol = NULL;
     int sym = sym_dump;
     while (sym = get_token(sfc, &symbol), sym != -ENODATA) {
-        debug_token(sfc, sym, symbol);
         if (sym == sym_left_brace)
             decode_function_scope(sfc);
         if (sym == sym_right_brace)
             return 0;
+        decode_stmt(sfc, symbol, sym);
     }
     return 0;
 }
@@ -295,7 +326,6 @@ out:
 static void scan_file(struct scan_file_control *sfc)
 {
     if (next_line(sfc)) {
-        //decode_action(sfc, decode_file_scope);
         while (decode_file_scope(sfc) != -ENODATA)
             ;
     }

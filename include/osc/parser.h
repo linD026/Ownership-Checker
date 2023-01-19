@@ -20,6 +20,11 @@ struct symbol {
 
 #define SYM_ENTRY(_name) __SYM_ENTRY(_name, sym_##_name)
 
+#define ATTR_FLAGS_BRW      0x0001
+#define ATTR_FLAGS_CLONE    0x0002
+#define ATTR_FLAGS_MUT       0x0004
+#define ATTR_FLAS_MASK (ATTR_FLAGS_BRW | ATTR_FLAGS_CLONE | ATTR_FLAGS_MUT)
+
 struct object {
     int storage_class;
     int type;
