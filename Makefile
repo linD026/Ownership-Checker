@@ -24,8 +24,8 @@ CXXFLAGS += -I$(PLUGINDIR)/include
 
 SO := plugin-ownership.so
 
-#SRC := src/ownership.cc
-SRC := src/graph.cc
+SRC := src/ownership.cc
+#SRC := src/graph.cc
 OBJ := $(SRC:.cc=.o)
 
 # top level goal: build our plugin as a shared library
