@@ -62,13 +62,7 @@ static int cmp_object(struct object *l, struct object *r)
 
 static void copy_object(struct object *dst, struct object *src)
 {
-    dst->storage_class = src->storage_class;
-    dst->type = src->type;
-    dst->is_struct = src->is_struct;
-    dst->struct_id = src->struct_id;
-    dst->is_ptr = src->is_ptr;
-    dst->attr = src->attr;
-    dst->id = src->id;
+    *dst = *src;
 }
 
 static int get_attr_flag(int sym)
@@ -82,6 +76,36 @@ static int get_attr_flag(int sym)
         return ATTR_FLAGS_MUT;
     }
     return 0;
+}
+
+static void raw_debug_object(struct object *obj)
+{
+    if (obj->storage_class != sym_dump)
+        print("%s ", token_name(obj->storage_class));
+    if (obj->type != sym_dump)
+        print("%s ", token_name(obj->type));
+    if (obj->is_struct)
+        print("%s ", obj->struct_id->name);
+    if (obj->attr & ATTR_FLAS_MASK) {
+        if (obj->attr & ATTR_FLAGS_BRW)
+            print("__brw ");
+        if (obj->attr & ATTR_FLAGS_CLONE)
+            print("__clone ");
+        if (obj->attr & ATTR_FLAGS_MUT)
+            print("__mut ");
+    }
+    if (obj->is_ptr)
+        print("*");
+    if (obj->id)
+        print("%s", obj->id->name);
+}
+
+static void debug_object(struct object *obj, const char *note)
+{
+    pr_debug("[OBJECT] start : %s\n", note);
+    raw_debug_object(obj);
+    print("\n");
+    pr_debug("[OBJECT] end\n");
 }
 
 static int get_object(struct scan_file_control *sfc, struct object *obj)
@@ -119,7 +143,6 @@ static int get_object(struct scan_file_control *sfc, struct object *obj)
     }
 attr_again:
     if (range_in_sym(attr, sym)) {
-        // TODO: mutiple attr
         obj->attr |= get_attr_flag(sym);
         sym = get_token(sfc, &symbol);
         debug_token(sfc, sym, symbol);
@@ -133,37 +156,9 @@ attr_again:
     if (sym == sym_id)
         obj->id = symbol;
 
+    debug_object(obj, "none");
+
     return sym;
-}
-
-static void raw_debug_object(struct object *obj)
-{
-    if (obj->storage_class != sym_dump)
-        print("%s ", token_name(obj->storage_class));
-    if (obj->type != sym_dump)
-        print("%s ", token_name(obj->type));
-    if (obj->is_struct)
-        print("%s ", obj->struct_id->name);
-    if (obj->attr & ATTR_FLAS_MASK) {
-        if (obj->attr & ATTR_FLAGS_BRW)
-            print("__brw ");
-        if (obj->attr & ATTR_FLAGS_CLONE)
-            print("__clone ");
-        if (obj->attr & ATTR_FLAGS_MUT)
-            print("__mut ");
-    }
-    if (obj->is_ptr)
-        print("*");
-    if (obj->id)
-        print("%s", obj->id->name);
-}
-
-static void debug_object(struct object *obj, const char *note)
-{
-    pr_debug("[OBJECT] start : %s\n", note);
-    raw_debug_object(obj);
-    print("\n");
-    pr_debug("[OBJECT] end\n");
 }
 
 static struct variable *var_alloc(void)
