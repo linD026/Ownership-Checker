@@ -180,6 +180,40 @@ static struct variable *var_alloc(void)
     return var;
 }
 
+/* function scope related functions */
+
+static int decode_stmt(struct scan_file_control *sfc, struct symbol *symbol,
+                       int sym)
+{
+    do {
+        debug_token(sfc, sym, symbol);
+        /* variable declaration */
+        /* assignment */
+        /* function call */
+        if (sym == sym_seq_point)
+            return 0;
+    } while (sym = get_token(sfc, &symbol), sym != -ENODATA);
+
+    return 0;
+}
+
+static int decode_function_scope(struct scan_file_control *sfc)
+{
+    struct symbol *symbol = NULL;
+    int sym = sym_dump;
+
+    while (sym = get_token(sfc, &symbol), sym != -ENODATA) {
+        if (sym == sym_left_brace)
+            decode_function_scope(sfc);
+        if (sym == sym_right_brace)
+            return 0;
+        decode_stmt(sfc, symbol, sym);
+    }
+    return 0;
+}
+
+/* file scope related functions */
+
 static struct function *search_function(struct file_info *fi,
                                         struct object *obj)
 {
@@ -233,32 +267,6 @@ static void debug_function(struct scan_file_control *sfc,
 
     // TODO: scope object
     print("\n");
-}
-
-static int decode_stmt(struct scan_file_control *sfc, struct symbol *symbol,
-                       int sym)
-{
-    do {
-        debug_token(sfc, sym, symbol);
-        if (sym == sym_seq_point)
-            return 0;
-    } while (sym = get_token(sfc, &symbol), sym != -ENODATA);
-
-    return 0;
-}
-
-static int decode_function_scope(struct scan_file_control *sfc)
-{
-    struct symbol *symbol = NULL;
-    int sym = sym_dump;
-    while (sym = get_token(sfc, &symbol), sym != -ENODATA) {
-        if (sym == sym_left_brace)
-            decode_function_scope(sfc);
-        if (sym == sym_right_brace)
-            return 0;
-        decode_stmt(sfc, symbol, sym);
-    }
-    return 0;
 }
 
 static int decode_file_scope(struct scan_file_control *sfc)
