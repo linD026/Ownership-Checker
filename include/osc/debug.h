@@ -29,10 +29,9 @@
 #include <stdlib.h>
 #include <execinfo.h>
 
-#define STACK_BUF_SIZE 32
-
-static __always_inline void dump_stack(void)
+static __always_inline __allow_unused void dump_stack(void)
 {
+#define STACK_BUF_SIZE 32
     char **stack_info;
     int nr = 0;
     void *buf[STACK_BUF_SIZE];
@@ -44,6 +43,7 @@ static __always_inline void dump_stack(void)
     for (int i = 0; i < nr; i++)
         print("  %s\n", stack_info[i]);
     print("========== dump stack  end  ==========\n");
+#undef STACK_BUF_SIZE
 }
 
 #define BUG_ON(cond, fmt, ...)                                     \
@@ -56,10 +56,12 @@ static __always_inline void dump_stack(void)
     } while (0)
 
 #define WARN_ON(cond, fmt, ...)                                    \
-    do {                                                           \
-        if (unlikely(cond))                                        \
+    ({                                                             \
+        int __w_i_c_d = (cond);                                    \
+        if (unlikely(__w_i_c_d))                                   \
             pr_err("WARN ON:" #cond ", " fmt "\n", ##__VA_ARGS__); \
-    } while (0)
+        __w_i_c_d;                                                 \
+    })
 
 #define pr_debug(fmt, ...) pr_info("DEBUG: " fmt, ##__VA_ARGS__)
 

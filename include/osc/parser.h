@@ -20,9 +20,9 @@ struct symbol {
 
 #define SYM_ENTRY(_name) __SYM_ENTRY(_name, sym_##_name)
 
-#define ATTR_FLAGS_BRW      0x0001
-#define ATTR_FLAGS_CLONE    0x0002
-#define ATTR_FLAGS_MUT       0x0004
+#define ATTR_FLAGS_BRW 0x0001
+#define ATTR_FLAGS_CLONE 0x0002
+#define ATTR_FLAGS_MUT 0x0004
 #define ATTR_FLAS_MASK (ATTR_FLAGS_BRW | ATTR_FLAGS_CLONE | ATTR_FLAGS_MUT)
 
 struct object {
@@ -357,15 +357,16 @@ static __always_inline char debug_sym_one_char(int sym)
     }
 }
 
-#define debug_token(sfc, _sym, _symbol)                                       \
-    do {                                                                      \
-        if (_symbol == NULL) {                                                \
-            int __c = debug_sym_one_char(_sym);                               \
-            if (__c != -ENODATA)                                              \
-                pr_info("char          : |%c|\n", (char)__c);                 \
-        } else                                                                \
-            pr_info("symbol(%2d, %2u): |%s|\n", _symbol->flags, _symbol->len, \
-                    _symbol->name);                                           \
-    } while (0)
+static __allow_unused void debug_token(struct scan_file_control *sfc, int sym,
+                                       struct symbol *symbol)
+{
+    if (symbol == NULL) {
+        int __c = debug_sym_one_char(sym);
+        if (__c != -ENODATA)
+            print("char          : |%c|\n", (char)__c);
+    } else
+        print("symbol(%2d, %2u): |%s|\n", symbol->flags, symbol->len,
+              symbol->name);
+}
 
 #endif /* __OSC_PARSER_H__ */

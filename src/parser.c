@@ -235,8 +235,8 @@ static void debug_function(struct scan_file_control *sfc,
     print("\n");
 }
 
-static int decode_stmt(struct scan_file_control *sfc,
-                       struct symbol *symbol, int sym)
+static int decode_stmt(struct scan_file_control *sfc, struct symbol *symbol,
+                       int sym)
 {
     do {
         debug_token(sfc, sym, symbol);
