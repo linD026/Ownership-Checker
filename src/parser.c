@@ -284,10 +284,12 @@ static int decode_file_scope(struct scan_file_control *sfc)
 
     sym = get_token(sfc, &buffer);
     if (sym == sym_left_paren) {
+        /* parse te function paramters */
         while (1) {
             struct variable *param = var_alloc();
 
             sym = get_object(sfc, &param->object);
+            /* non-parameter type of function: func(void) */
             if (unlikely(sym != sym_id && param->object.type == sym_void)) {
                 free(param);
                 break;
@@ -298,15 +300,18 @@ static int decode_file_scope(struct scan_file_control *sfc)
             if (sym != sym_comma)
                 break;
         }
+        /* We are the end of parameter list, check if the sym is ")" or not. */
         if (sym != sym_right_paren) {
             WARN_ON(1, "syntax error %c", debug_sym_one_char(sym));
             syntax_error(sfc);
         }
+
         sym = get_token(sfc, &buffer);
         /* function declaration */
         if (sym == sym_seq_point)
             goto out;
         else if (sym == sym_left_brace) {
+            /* function definition */
             debug_function(sfc, sfc->function);
             decode_function_scope(sfc);
         } else {
