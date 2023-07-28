@@ -1,5 +1,9 @@
 # Ownership Checker for C Language
 
+WARNING:
+Now, this project is restructuring, you may get the following example by
+rebasing to this commit ff934ed.
+
 ## Build
 
 ```bash
