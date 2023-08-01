@@ -3,54 +3,69 @@
 #include <osc/check_list.h>
 #include <stdio.h>
 
-#define _VA_ENTRY(_type, _TYPE)                                             \
-    {                                                                       \
-        .type = #_type, .len = sizeof(#_type) - 1, .flag = VAR_ATTR_##_TYPE \
-    }
-#define VA_ENTRY(type, TYPE) _VA_ENTRY(type, TYPE)
-
-const struct type_info var_attr_table[] = { VA_ENTRY(__brw, BRW),
-                                            VA_ENTRY(__mut, MUT) };
-
-void bad_fsobject(struct fsobject_struct *fso)
+static void dump_object(struct object *obj, struct function *func,
+                        const char *place)
 {
-    print("    \e[36m|\e[0m \n"
-          "    \e[36m=\e[0m ==== dump object ====\n"
-          "    \e[36m||\e[0m function; %s\n"
-          "    \e[36m||\e[0m type; %s %s %s\n"
-          "    \e[36m||\e[0m name: %s\n"
-          "    \e[36m||\e[0m info: %s\n"
-          "    \e[36m=\e[0m =====================\n",
-          fso->func->info.name, obj_type_name(&fso->info.ot),
-          dump_attr(&fso->info), obj_ptr_type(&fso->info.ot) ? "*" : "",
-          fso->info.name, dump_fso_type(fso));
+    print("OSC NOTE: The object is declared as %s's %s: ",
+          func->object.id->name, place);
+    if (obj->storage_class != sym_dump)
+        print("%s ", token_name(obj->storage_class));
+    if (obj->type != sym_dump)
+        print("%s ", token_name(obj->type));
+    if (obj->is_struct)
+        print("%s ", obj->struct_id->name);
+    if (obj->attr & ATTR_FLAS_MASK) {
+        if (obj->attr & ATTR_FLAGS_BRW)
+            print("__brw ");
+        if (obj->attr & ATTR_FLAGS_CLONE)
+            print("__clone ");
+        if (obj->attr & ATTR_FLAGS_MUT)
+            print("__mut ");
+    }
+    if (obj->is_ptr)
+        print("*");
+    if (obj->id)
+        print("%s", obj->id->name);
+    print("\n");
 }
 
-int check_ownership(void)
+static int is_same_and_writeable(struct scan_file_control *sfc,
+                                 struct variable *var, struct object *obj)
 {
+    struct object *orig = &var->object;
+
+    if (orig->id != obj->id)
+        return 0;
+    if ((orig->attr & ATTR_FLAGS_BRW) && !(orig->attr & ATTR_FLAGS_MUT)) {
+        bad(sfc, "Don't write to immutable object");
+        return -1;
+    }
+    if ((orig->attr & ATTR_FLAGS_MUT) && var->is_dropped) {
+        bad(sfc, "Don't write to dropped object");
+        return -1;
+    }
     return 0;
 }
 
-int check_func_args_write(struct scan_file_control *sfc,
-                          struct bsobject_struct *bso)
+int check_ownership_writeable(struct scan_file_control *sfc, struct object *obj)
 {
-    struct fsobject_struct *fso = bso->fso;
+    struct function *func = sfc->function;
 
-    list_for_each (&fso->func_args_head) {
-        struct fsobject_struct *fso_arg =
-            container_of(curr, struct fsobject_struct, func_args_node);
-        if (strncmp(fso_arg->info.name, bso->info.name, MAX_NR_NAME) == 0) {
-            struct token *arg_ot = &fso_arg->info.ot;
-            if (arg_ot->attr_type == VAR_ATTR_DEFAULT) {
-                bad(sfc, "Don't write to immutable object");
-                bad_fsobject(fso_arg);
-            }
-            /* For other types, they might be overlapped. */
-            if (arg_ot->attr_type & VAR_ATTR_BRW &&
-                !(arg_ot->attr_type & VAR_ATTR_MUT)) {
-                bad(sfc, "Don't write to borrowed object");
-                bad_fsobject(fso_arg);
-            }
+    list_for_each (&func->parameter_var_head) {
+        struct variable *param =
+            container_of(curr, struct variable, parameter_node);
+        if (is_same_and_writeable(sfc, param, obj)) {
+            dump_object(&param->object, func, "argument");
+            return -1;
+        }
+    }
+
+    list_for_each (&func->func_scope_var_head) {
+        struct variable *var =
+            container_of(curr, struct variable, func_scope_node);
+        if (is_same_and_writeable(sfc, var, obj)) {
+            dump_object(&var->object, func, "scope");
+            return -1;
         }
     }
 

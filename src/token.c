@@ -53,6 +53,7 @@ static struct symbol sym_table[] = {
     __SYM_ENTRY(->, sym_ptr_assign),
     __SYM_ENTRY(||, sym_logic_or),
     __SYM_ENTRY(&&, sym_logic_and),
+    __SYM_ENTRY(==, sym_equal),
 };
 
 static int sym_one_char(struct scan_file_control *sfc)
@@ -88,6 +89,12 @@ static int sym_one_char(struct scan_file_control *sfc)
         break;
     case '=':
         sym = sym_eq;
+        break;
+    case '+':
+        sym = sym_add;
+        break;
+    case '-':
+        sym = sym_minus;
         break;
     case ',':
         sym = sym_comma;

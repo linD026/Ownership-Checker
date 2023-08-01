@@ -37,6 +37,7 @@ struct object {
 
 /* the token should be related to pointer type. */
 struct variable {
+    int is_dropped;
     struct object object;
     struct list_head scope_node;
     struct list_head structure_node;
@@ -128,11 +129,11 @@ static __always_inline int blank(char ch)
     while ((sfc)->offset = 0, (sfc)->line++, \
            fgets((sfc)->buffer, (sfc)->size, (sfc)->fi->file) != NULL)
 
-#define next_line(sfc)                                                    \
-    ({                                                                    \
-        (sfc)->offset = 0;                                                \
-        (sfc)->line++,                                                    \
-            (fgets((sfc)->buffer, (sfc)->size, (sfc)->fi->file) != NULL); \
+#define next_line(sfc)                                                \
+    ({                                                                \
+        (sfc)->offset = 0;                                            \
+        (sfc)->line++;                                                \
+        (fgets((sfc)->buffer, (sfc)->size, (sfc)->fi->file) != NULL); \
     })
 
 /*
@@ -269,6 +270,7 @@ enum {
     sym_ptr_assign, // ->
     sym_logic_or, // ||
     sym_logic_and, // &&
+    sym_equal, // ==
 
     /* sym_table end */
 
@@ -283,6 +285,8 @@ enum {
     sym_lt, // <
     sym_gt, // >
     sym_eq, // =
+    sym_add, // +
+    sym_minus, // -
     sym_comma, // ,
     sym_dot, // .
     sym_seq_point, // ;
@@ -343,6 +347,10 @@ static __always_inline char debug_sym_one_char(int sym)
         return '>';
     case sym_eq:
         return '=';
+    case sym_add:
+        return '+';
+    case sym_minus:
+        return '-';
     case sym_comma:
         return ',';
     case sym_dot:
@@ -352,13 +360,13 @@ static __always_inline char debug_sym_one_char(int sym)
     case -ENODATA:
         return -ENODATA;
     default:
-        WARN_ON(1, "failed:%d", sym);
+        /* We might have single char id, so just return it. */
         return sym;
     }
 }
 
-static __allow_unused void debug_token(struct scan_file_control *sfc, int sym,
-                                       struct symbol *symbol)
+static __allow_unused void __debug_token(struct scan_file_control *sfc, int sym,
+                                         struct symbol *symbol)
 {
     if (symbol == NULL) {
         int __c = debug_sym_one_char(sym);
@@ -368,5 +376,11 @@ static __allow_unused void debug_token(struct scan_file_control *sfc, int sym,
         print("symbol(%2d, %2u): |%s|\n", symbol->flags, symbol->len,
               symbol->name);
 }
+
+#define debug_token(sfc, sym, symbol)    \
+    do {                                 \
+        pr_info(" ");                    \
+        __debug_token(sfc, sym, symbol); \
+    } while (0)
 
 #endif /* __OSC_PARSER_H__ */

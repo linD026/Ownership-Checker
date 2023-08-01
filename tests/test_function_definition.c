@@ -1,5 +1,8 @@
 int func(int a, int __mut b, int __brw *c, int __brw *d)
 {
+    int e;
+    int f = a + c;
+
     a = 1;
     b = 2;
     *c = 3;
@@ -14,4 +17,7 @@ int func2(int a, int __mut b, int __brw *c, int __brw *d)
 {
     a = 1;
     b = 3;
+
+    func(a, b, c, d + d);
+    b = 1;
 }
