@@ -14,12 +14,12 @@ make clean          # Delete generated files
 $ make
 $ ./osc tests/test_function_definition.c 
 OSC Analyzes file: tests/test_function_definition.c
-OSC ERROR: Don't write to the immutable object
+OSC ERROR: Don't write to the borrowed object
     --> tests/test_function_definition.c:8:8
     |        *c = 3;
                   ^
 OSC NOTE: The object is declared as func's argument: int __brw *c
-OSC ERROR: Don't write to the immutable object
+OSC ERROR: Don't write to the borrowed object
     --> tests/test_function_definition.c:9:8
     |        *d = 4;
                   ^
