@@ -45,10 +45,6 @@ static struct symbol sym_table[] = {
     SYM_ENTRY(true),
     SYM_ENTRY(false),
 
-    /* Allocate function */
-    SYM_ENTRY(malloc),
-    SYM_ENTRY(free),
-
     /* sym id start */
     __SYM_ENTRY(->, sym_ptr_assign),
     __SYM_ENTRY(||, sym_logic_or),

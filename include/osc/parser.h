@@ -104,7 +104,7 @@ static __always_inline void bad(struct scan_file_control *sfc,
     print("    \e[36m-->\e[0m %s:%lu:%u\n", sfc->fi->name, sfc->line,
           sfc->offset);
     print("    \e[36m|\e[0m    %s", sfc->buffer);
-    print("         ");
+    print("          ");
     for (int i = 0; i < sfc->offset; i++)
         print(" ");
     print("\e[31m^\e[0m\n");
@@ -262,9 +262,6 @@ enum {
     sym_return,
     sym_true, /* C23 keyword true, false */
     sym_false,
-
-    sym_malloc,
-    sym_free,
 
     /* sym id start - ptr_assign */
     sym_ptr_assign, // ->

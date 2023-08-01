@@ -245,7 +245,6 @@ static int decode_func_call(struct scan_file_control *sfc,
         if (sym == sym_id) {
             struct variable *var =
                 search_var_in_function(sfc->function, symbol);
-            debug_object(&var->object, "search var in function");
             if (unlikely(!var)) {
                 bad(sfc, "unkown symbol");
                 continue;
@@ -273,11 +272,13 @@ static int decode_stmt(struct scan_file_control *sfc, struct symbol *symbol,
             struct symbol *orig_symbol = symbol;
 
             /* variable declaration */
-            if (range_in_sym(storage_class, tmp_obj.type)) {
+            if (range_in_sym(storage_class, tmp_obj.storage_class) ||
+                range_in_sym(type, tmp_obj.type)) {
                 struct variable *var = var_alloc();
                 copy_object(&var->object, &tmp_obj);
-                list_add_tail(&sfc->function->func_scope_var_head,
-                              &var->func_scope_node);
+                list_add_tail(&var->func_scope_node,
+                              &sfc->function->func_scope_var_head);
+                debug_object(&var->object, "declare var in scope");
             }
 
             sym = get_token(sfc, &symbol);
@@ -291,7 +292,7 @@ static int decode_stmt(struct scan_file_control *sfc, struct symbol *symbol,
                 debug_object(&tmp_obj, "function call start");
                 sym = decode_func_call(sfc, orig_symbol);
             } else {
-                debug_object(&tmp_obj, "var declaration");
+                debug_object(&tmp_obj, "TODO");
             }
         }
 
