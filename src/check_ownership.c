@@ -41,7 +41,16 @@ static int is_same_and_writeable(struct scan_file_control *sfc,
         return -1;
     }
     if ((orig->attr & ATTR_FLAGS_MUT) && var->is_dropped) {
+        struct dropped_info *info = &var->dropped_info;
+
         bad(sfc, "Don't write to the dropped object");
+        print("    \e[36m+->\e[0m Dropped at %s:%lu:%u\n", sfc->fi->name,
+              info->line, info->offset);
+        print("    \e[36m|\e[0m    %s", info->buffer);
+        print("    \e[36m|\e[0m   ");
+        for (int i = 0; i < info->offset; i++)
+            print(" ");
+        print("\e[31m^\e[0m\n");
         return -1;
     }
     // TODO: To compatible with the normal C,

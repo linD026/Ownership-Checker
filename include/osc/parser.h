@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <string.h>
 
+#define MAX_BUFFER_LEN 128
 #define MAX_NR_NAME 80
 
 struct symbol {
@@ -35,9 +36,17 @@ struct object {
     struct symbol *id;
 };
 
+struct dropped_info {
+    char buffer[MAX_BUFFER_LEN];
+    unsigned long line;
+    unsigned int offset;
+};
+
 /* the token should be related to pointer type. */
 struct variable {
     int is_dropped;
+    struct dropped_info dropped_info;
+
     struct object object;
     struct list_head scope_node;
     struct list_head structure_node;
@@ -83,8 +92,6 @@ struct file_info {
     struct list_head struct_head;
 };
 
-#define MAX_BUFFER_LEN 128
-
 struct scan_file_control {
     struct file_info *fi;
     char buffer[MAX_BUFFER_LEN];
@@ -104,7 +111,7 @@ static __always_inline void bad(struct scan_file_control *sfc,
     print("    \e[36m-->\e[0m %s:%lu:%u\n", sfc->fi->name, sfc->line,
           sfc->offset);
     print("    \e[36m|\e[0m    %s", sfc->buffer);
-    print("          ");
+    print("    \e[36m|\e[0m     ");
     for (int i = 0; i < sfc->offset; i++)
         print(" ");
     print("\e[31m^\e[0m\n");

@@ -17,17 +17,20 @@ OSC Analyzes file: tests/test_function_definition.c
 OSC ERROR: Don't write to the borrowed object
     --> tests/test_function_definition.c:8:8
     |        *c = 3;
-                  ^
+    |             ^
 OSC NOTE: The object is declared as func's argument: int __brw *c
 OSC ERROR: Don't write to the borrowed object
     --> tests/test_function_definition.c:9:8
     |        *d = 4;
-                  ^
+    |             ^
 OSC NOTE: The object is declared as func's argument: int __brw *d
 OSC ERROR: Don't write to the dropped object
     --> tests/test_function_definition.c:22:7
     |        b = 1;
-                 ^
+    |            ^
+    +-> Dropped at tests/test_function_definition.c:21:13
+    |        func(a, b, c, d + d);
+    |                ^
 OSC NOTE: The object is declared as func2's argument: int __mut b
 ```
 

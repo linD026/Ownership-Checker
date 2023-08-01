@@ -175,6 +175,14 @@ static int get_object(struct scan_file_control *sfc, struct object *obj)
     return compose_object(sfc, obj, sym, symbol);
 }
 
+static void drop_variable(struct scan_file_control *sfc, struct variable *var)
+{
+    strncpy(var->dropped_info.buffer, sfc->buffer, MAX_BUFFER_LEN);
+    var->dropped_info.line = sfc->line;
+    var->dropped_info.offset = sfc->offset;
+    var->is_dropped = 1;
+}
+
 static struct variable *var_alloc(void)
 {
     struct variable *var = malloc(sizeof(struct variable));
@@ -252,7 +260,7 @@ static int decode_func_call(struct scan_file_control *sfc,
             /* We only check the mut attribute */
             if (var->object.attr & ATTR_FLAGS_MUT) {
                 debug_object(&var->object, "dropped the var");
-                var->is_dropped = 1;
+                drop_variable(sfc, var);
             }
         }
     }
