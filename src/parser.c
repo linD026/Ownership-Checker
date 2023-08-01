@@ -78,8 +78,9 @@ static int get_attr_flag(int sym)
     return 0;
 }
 
-static void raw_debug_object(struct object *obj)
+static __allow_unused void raw_debug_object(struct object *obj)
 {
+#ifdef CONFIG_DEBUG
     if (obj->storage_class != sym_dump)
         print("%s ", token_name(obj->storage_class));
     if (obj->type != sym_dump)
@@ -98,13 +99,16 @@ static void raw_debug_object(struct object *obj)
         print("*");
     if (obj->id)
         print("%s", obj->id->name);
+#endif /* CONFIG_DEBUG */
 }
 
 static void debug_object(struct object *obj, const char *note)
 {
+#ifdef CONFIG_DEBUG
     print("[OBJECT] %s: ", note);
     raw_debug_object(obj);
     print(" \n");
+#endif /* CONFIG_DEBUG */
 }
 
 /*
@@ -359,6 +363,7 @@ static struct function *insert_function(struct file_info *fi,
 static void debug_function(struct scan_file_control *sfc,
                            struct function *function)
 {
+#ifdef CONFIG_DEBUG
     print("[FUNC] ");
     raw_debug_object(&function->object);
     print(" (");
@@ -377,6 +382,7 @@ static void debug_function(struct scan_file_control *sfc,
 
     // TODO: scope object
     print("\n");
+#endif /* CONFIG_DEBUG */
 }
 
 static int decode_file_scope(struct scan_file_control *sfc)

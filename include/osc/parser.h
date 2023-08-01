@@ -326,6 +326,7 @@ const char *token_name(int n);
 
 static __always_inline char debug_sym_one_char(int sym)
 {
+#ifdef CONFIG_DEBUG
     switch (sym) {
     case sym_left_paren:
         return '(';
@@ -363,11 +364,14 @@ static __always_inline char debug_sym_one_char(int sym)
         /* We might have single char id, so just return it. */
         return sym;
     }
+#endif /* CONFIG_DEBUG */
+    return sym;
 }
 
 static __allow_unused void __debug_token(struct scan_file_control *sfc, int sym,
                                          struct symbol *symbol)
 {
+#ifdef CONFIG_DEBUG
     if (symbol == NULL) {
         int __c = debug_sym_one_char(sym);
         if (__c != -ENODATA)
@@ -375,12 +379,19 @@ static __allow_unused void __debug_token(struct scan_file_control *sfc, int sym,
     } else
         print("symbol(%2d, %2u): |%s|\n", symbol->flags, symbol->len,
               symbol->name);
+#endif /* CONFIG_DEBUG */
 }
 
+#ifdef CONFIG_DEBUG
 #define debug_token(sfc, sym, symbol)    \
     do {                                 \
         pr_info(" ");                    \
         __debug_token(sfc, sym, symbol); \
     } while (0)
+#else
+#define debug_token(sfc, sym, symbol) \
+    do {                              \
+    } while (0)
+#endif /* CONFIG_DEBUG */
 
 #endif /* __OSC_PARSER_H__ */

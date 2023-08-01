@@ -12,7 +12,6 @@ CFLAGS+=-rdynamic
 
 DEBUG_FLAGS=
 ifneq ($(strip $(verbose)),)
-#DEBUG_FLAGS+=-fsanitize=thread
 DEBUG_FLAGS+=-D'CONFIG_DEBUG'
 CFLAGS+=$(DEBUG_FLAGS)
 endif
