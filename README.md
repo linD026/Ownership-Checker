@@ -12,26 +12,29 @@ make clean          # Delete generated files
 
 ```
 $ make
-$ ./osc tests/test_function_definition.c 
-OSC Analyzes file: tests/test_function_definition.c
-OSC ERROR: Don't write to the borrowed object
-    --> tests/test_function_definition.c:8:8
-    |        *c = 3;
-    |             ^
-OSC NOTE: The object is declared as func's argument: int __brw *c
-OSC ERROR: Don't write to the borrowed object
-    --> tests/test_function_definition.c:9:8
-    |        *d = 4;
-    |             ^
-OSC NOTE: The object is declared as func's argument: int __brw *d
-OSC ERROR: Don't write to the dropped object
-    --> tests/test_function_definition.c:22:7
-    |        b = 1;
-    |            ^
-    +-> Dropped at tests/test_function_definition.c:21:13
-    |        func(a, b, c, d + d);
+$ ./osc tests/test_write.c 
+OSC Analyzes file: tests/test_write.c
+OSC ERROR: Return the dropped object
+    |-> tests/test_write.c:4:13
+    |        return (b + 1);
     |                ^
-OSC NOTE: The object is declared as func2's argument: int __mut b
+    +-> Dropped at tests/test_write.c:3:18
+    |        function2(a, b, c);
+    |                     ^
+OSC NOTE: The object is declared as function2's argument: int __mut *b
+OSC ERROR: Don't write to the borrowed object
+    |-> tests/test_write.c:11:14
+    |        a = borrow = 3;
+    |                 ^
+OSC NOTE: The object is declared as function's argument: int __brw *borrow
+OSC ERROR: Return the dropped object
+    |-> tests/test_write.c:15:18
+    |        return mutable;
+    |                     ^
+    +-> Dropped at tests/test_write.c:13:24
+    |        function2(a, mutable, borrow);
+    |                           ^
+OSC NOTE: The object is declared as function's argument: int __mut *mutable
 ```
 
 Now, we only check the ownership of the pointer that has the `__mut` or `__brw` attribute.

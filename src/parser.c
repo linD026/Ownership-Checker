@@ -254,6 +254,10 @@ static int decode_func_call(struct scan_file_control *sfc,
     return sym;
 }
 
+/*
+ * Before we call to this function, we need to make sure that
+ * the current function return type is pointer.
+ */
 static int decode_func_return(struct scan_file_control *sfc)
 {
     struct symbol *symbol = NULL;
@@ -341,6 +345,7 @@ static int decode_stmt(struct scan_file_control *sfc, struct symbol *symbol,
                 sym = decode_func_call(sfc, orig_symbol);
             } else {
                 debug_object(&tmp_obj, "TODO");
+                WARN_ON(1, "we might not reach here");
             }
         } else if (sym == sym_return) {
             if (sfc->function->object.is_ptr) {

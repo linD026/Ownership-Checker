@@ -117,16 +117,18 @@ static __always_inline int blank(char ch)
     return 0;
 }
 
-static __always_inline int bad_get_last_offset(struct scan_file_control *sfc)
+static __always_inline int bad_get_last_offset(const char *buffer,
+                                               unsigned int offset)
 {
     /* we manually get the offset of last id symbol.
      * Otherwise, if we use sfc->offset to get the lcoation it
      * will be the first offset of next symbol
      */
-    for (int i = sfc->offset; i >= 0; i--) {
-        if (blank(sfc->buffer[i]))
+    for (unsigned int i = offset; i >= 0; i--) {
+        if (blank(buffer[i]))
             continue;
-        switch (sfc->buffer[i]) {
+        /* See the symbol table - one char */
+        switch (buffer[i]) {
         case '(':
         case ')':
         case '{':
@@ -151,21 +153,42 @@ static __always_inline int bad_get_last_offset(struct scan_file_control *sfc)
     return -1;
 }
 
+#define bad_template(level, file, line, buffer, offset, note, warning)     \
+    do {                                                                   \
+        int __b_t_last_local = bad_get_last_offset(buffer, offset);        \
+        char __level_symbol = (level) ? '+' : '|';                         \
+        const char *__note = (const char *)note;                           \
+        const char *__warning = (const char *)warning;                     \
+        if (__warning)                                                     \
+            print("\e[1m\e[31mOSC ERROR\e[0m\e[0m: \e[1m%s\e[0m\n",        \
+                  __warning);                                              \
+        if (__note) {                                                      \
+            print("    \e[36m%c->\e[0m %s %s:%lu:%u\n", __level_symbol,    \
+                  __note, file, line, __b_t_last_local + 1);               \
+        } else {                                                           \
+            print("    \e[36m%c->\e[0m %s:%lu:%u\n", __level_symbol, file, \
+                  line, __b_t_last_local + 1);                             \
+        }                                                                  \
+        print("    \e[36m|\e[0m    %s", buffer);                           \
+        print("    \e[36m|\e[0m    ");                                     \
+        for (int __b_i = 0; __b_i < __b_t_last_local; __b_i++)             \
+            print(" ");                                                    \
+        print("\e[31m^\e[0m\n");                                           \
+    } while (0)
+
 static __always_inline void bad(struct scan_file_control *sfc,
                                 const char *warning)
 {
-    int last_local = bad_get_last_offset(sfc);
-    print("\e[1m\e[31mOSC ERROR\e[0m\e[0m: \e[1m%s\e[0m\n", warning);
-    print("    \e[36m-->\e[0m %s:%lu:%u\n", sfc->fi->name, sfc->line,
-          sfc->offset);
-    print("    \e[36m|\e[0m    %s", sfc->buffer);
-    print("    \e[36m|\e[0m    ");
-    for (int i = 0; i < last_local; i++)
-        print(" ");
-    print("\e[31m^\e[0m\n");
+    bad_template(0, sfc->fi->name, sfc->line, sfc->buffer, sfc->offset, NULL,
+                 warning);
 }
 
 #define syntax_error(sfc) bad(sfc, "syntax error")
+
+#define bad_on_dropped_info(sfc, dropped_info)                                 \
+    bad_template(1, sfc->fi->name, (dropped_info)->line,                       \
+                 (dropped_info)->buffer, (dropped_info)->offset, "Dropped at", \
+                 NULL)
 
 #define for_each_line(sfc)                   \
     while ((sfc)->offset = 0, (sfc)->line++, \

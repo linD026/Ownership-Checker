@@ -41,18 +41,8 @@ static int is_same_and_writable(struct scan_file_control *sfc,
         return -1;
     }
     if ((orig->attr & ATTR_FLAGS_MUT) && var->is_dropped) {
-        struct dropped_info *info = &var->dropped_info;
-        int last_local = bad_get_last_offset(sfc);
-
         bad(sfc, "Don't write to the dropped object");
-        print("    \e[36m+->\e[0m Dropped at %s:%lu:%u\n", sfc->fi->name,
-              info->line, info->offset);
-        print("    \e[36m|\e[0m    %s", info->buffer);
-        print("    \e[36m|\e[0m    ");
-        for (int i = 0; i < last_local; i++)
-            print(" ");
-        print("\e[31m^\e[0m\n");
-        return -1;
+        bad_on_dropped_info(sfc, &var->dropped_info);
     }
     // TODO: To compatible with the normal C,
     // we only check the pointer which has self-defined attributes
@@ -98,20 +88,12 @@ static int is_owned(struct scan_file_control *sfc, struct variable *var,
         return 0;
     if ((orig->attr & ATTR_FLAGS_BRW) && !(orig->attr & ATTR_FLAGS_MUT)) {
         bad(sfc,
-            "Return the borrowed object which is not belonged to this function");
+            "Return the borrowed object which doesn't belong to this function");
         return -1;
     }
     if ((orig->attr & ATTR_FLAGS_MUT) && var->is_dropped) {
-        struct dropped_info *info = &var->dropped_info;
-
         bad(sfc, "Return the dropped object");
-        print("    \e[36m+->\e[0m Dropped at %s:%lu:%u\n", sfc->fi->name,
-              info->line, info->offset);
-        print("    \e[36m|\e[0m    %s", info->buffer);
-        print("    \e[36m|\e[0m   ");
-        for (int i = 0; i < info->offset; i++)
-            print(" ");
-        print("\e[31m^\e[0m\n");
+        bad_on_dropped_info(sfc, &var->dropped_info);
         return -1;
     }
 
