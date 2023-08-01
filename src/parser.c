@@ -219,24 +219,6 @@ static struct variable *search_var_in_function(struct function *func,
     return NULL;
 }
 
-static int decode_expr(struct scan_file_control *sfc, struct symbol *symbol,
-                       int sym)
-{
-    while (sym = get_token(sfc, &symbol), sym != -ENODATA) {
-        debug_token(sfc, sym, symbol);
-        if (sym == sym_eq) {
-            /* assignment */
-            // TODO: we should also check here
-            sym = decode_expr(sfc, symbol, sym);
-        }
-        /* function call */
-        if (sym == sym_seq_point)
-            return sym;
-    }
-
-    return sym;
-}
-
 static int decode_func_call(struct scan_file_control *sfc,
                             struct symbol *func_symbol)
 {
@@ -263,6 +245,36 @@ static int decode_func_call(struct scan_file_control *sfc,
                 drop_variable(sfc, var);
             }
         }
+    }
+
+    return sym;
+}
+
+static int decode_expr(struct scan_file_control *sfc, struct symbol *symbol,
+                       int sym)
+{
+    struct symbol *prev_symbol = symbol;
+    int prev_sym = sym;
+
+    while (sym = get_token(sfc, &symbol), sym != -ENODATA) {
+        debug_token(sfc, sym, symbol);
+        if (sym == sym_eq) {
+            /* assignment */
+            if (prev_sym == sym_id) {
+                struct object tmp_obj;
+                sym = compose_object(sfc, &tmp_obj, prev_sym, prev_symbol);
+                check_ownership_writable(sfc, &tmp_obj);
+            }
+            sym = decode_expr(sfc, symbol, sym);
+        }
+        if (sym == sym_left_paren) {
+            /* function call */
+            sym = decode_func_call(sfc, prev_symbol);
+        }
+        if (sym == sym_seq_point)
+            return sym;
+        prev_symbol = symbol;
+        prev_sym = sym;
     }
 
     return sym;
