@@ -37,11 +37,11 @@ static int is_same_and_writeable(struct scan_file_control *sfc,
     if (!cmp_token(obj->id, orig->id))
         return 0;
     if ((orig->attr & ATTR_FLAGS_BRW) && !(orig->attr & ATTR_FLAGS_MUT)) {
-        bad(sfc, "Don't write to immutable object");
+        bad(sfc, "Don't write to the immutable object");
         return -1;
     }
     if ((orig->attr & ATTR_FLAGS_MUT) && var->is_dropped) {
-        bad(sfc, "Don't write to dropped object");
+        bad(sfc, "Don't write to the dropped object");
         return -1;
     }
     return 0;

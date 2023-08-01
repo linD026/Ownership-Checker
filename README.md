@@ -1,63 +1,37 @@
 # Ownership Checker for C Language
 
-WARNING:
-Now, this project is restructuring, you may get the following example by
-rebasing to this commit ff934ed.
-
 ## Build
 
 ```bash
 make                # Build the program
+make verbose=1      # Debug mode
 make clean          # Delete generated files
 ```
 
 ## Example
 
 ```
-$ make debug=1
+$ make
 $ ./osc tests/test_function_definition.c 
 OSC Analyzes file: tests/test_function_definition.c
-OSC ERROR: Don't write to immutable object
-    --> tests/test_function_definition.c:3:7
-    |        a = 1;
-    | 
-    = ==== dump object ====
-    || function; func
-    || type; int  
-    || name: a
-    || info: fso_function_args
-    = =====================
-OSC ERROR: Don't write to borrowed object
-    --> tests/test_function_definition.c:5:8
+OSC ERROR: Don't write to the immutable object
+    --> tests/test_function_definition.c:8:8
     |        *c = 3;
-    | 
-    = ==== dump object ====
-    || function; func
-    || type; int __brw *
-    || name: c
-    || info: fso_function_args
-    = =====================
-OSC ERROR: Don't write to immutable object
-    --> tests/test_function_definition.c:9:11
-    |            a = 1;
-    | 
-    = ==== dump object ====
-    || function; func
-    || type; int  
-    || name: a
-    || info: fso_function_args
-    = =====================
-OSC ERROR: Don't write to immutable object
-    --> tests/test_function_definition.c:15:7
-    |        a = 1;
-    | 
-    = ==== dump object ====
-    || function; func2
-    || type; int  
-    || name: a
-    || info: fso_function_args
-    = =====================
+                  ^
+OSC NOTE: The object is declared as func's argument: int __brw *c
+OSC ERROR: Don't write to the immutable object
+    --> tests/test_function_definition.c:9:8
+    |        *d = 4;
+                  ^
+OSC NOTE: The object is declared as func's argument: int __brw *d
+OSC ERROR: Don't write to the dropped object
+    --> tests/test_function_definition.c:22:7
+    |        b = 1;
+                 ^
+OSC NOTE: The object is declared as func2's argument: int __mut b
 ```
+
+Now, we only check the ownership of the pointer that has the `__mut` or `__brw` attribute.
 
 ## Sample
 
