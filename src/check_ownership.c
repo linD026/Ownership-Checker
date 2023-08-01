@@ -29,8 +29,8 @@ static void dump_object(struct object *obj, struct function *func,
     print("\n");
 }
 
-static int is_same_and_writeable(struct scan_file_control *sfc,
-                                 struct variable *var, struct object *obj)
+static int is_same_and_writable(struct scan_file_control *sfc,
+                                struct variable *var, struct object *obj)
 {
     struct object *orig = &var->object;
 
@@ -63,14 +63,14 @@ static int is_same_and_writeable(struct scan_file_control *sfc,
     return 0;
 }
 
-int check_ownership_writeable(struct scan_file_control *sfc, struct object *obj)
+int check_ownership_writable(struct scan_file_control *sfc, struct object *obj)
 {
     struct function *func = sfc->function;
 
     list_for_each (&func->parameter_var_head) {
         struct variable *param =
             container_of(curr, struct variable, parameter_node);
-        if (is_same_and_writeable(sfc, param, obj)) {
+        if (is_same_and_writable(sfc, param, obj)) {
             dump_object(&param->object, func, "argument");
             return -1;
         }
@@ -79,7 +79,7 @@ int check_ownership_writeable(struct scan_file_control *sfc, struct object *obj)
     list_for_each (&func->func_scope_var_head) {
         struct variable *var =
             container_of(curr, struct variable, func_scope_node);
-        if (is_same_and_writeable(sfc, var, obj)) {
+        if (is_same_and_writable(sfc, var, obj)) {
             dump_object(&var->object, func, "scope");
             return -1;
         }

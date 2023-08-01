@@ -293,7 +293,7 @@ static int decode_stmt(struct scan_file_control *sfc, struct symbol *symbol,
             if (sym == sym_eq) {
                 /* assignment */
                 debug_token(sfc, sym, symbol);
-                check_ownership_writeable(sfc, &tmp_obj);
+                check_ownership_writable(sfc, &tmp_obj);
                 sym = decode_expr(sfc, symbol, sym);
             } else if (sym == sym_left_paren) {
                 /* function call start */
