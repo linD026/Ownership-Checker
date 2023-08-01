@@ -179,6 +179,10 @@ static void drop_variable(struct scan_file_control *sfc, struct variable *var)
 {
     strncpy(var->dropped_info.buffer, sfc->buffer, MAX_BUFFER_LEN);
     var->dropped_info.line = sfc->line;
+    /*
+     * We adapt the offset to the last symbol when we report the warning.
+     * See the bad_get_last_offset();
+     */
     var->dropped_info.offset = sfc->offset;
     var->is_dropped = 1;
 }
@@ -250,6 +254,25 @@ static int decode_func_call(struct scan_file_control *sfc,
     return sym;
 }
 
+static int decode_func_return(struct scan_file_control *sfc)
+{
+    struct symbol *symbol = NULL;
+    int sym = sym_dump;
+
+    while (sym = get_token(sfc, &symbol), sym != -ENODATA) {
+        debug_token(sfc, sym, symbol);
+        if (sym == sym_id) {
+            struct object tmp_obj;
+            sym = compose_object(sfc, &tmp_obj, sym, symbol);
+            check_ownership_owned(sfc, &tmp_obj);
+            return sym;
+        } else if (sym == sym_seq_point)
+            return sym;
+    }
+
+    return sym;
+}
+
 static int decode_expr(struct scan_file_control *sfc, struct symbol *symbol,
                        int sym)
 {
@@ -270,6 +293,11 @@ static int decode_expr(struct scan_file_control *sfc, struct symbol *symbol,
         if (sym == sym_left_paren) {
             /* function call */
             sym = decode_func_call(sfc, prev_symbol);
+        }
+        if (sym == sym_return) {
+            if (sfc->function->object.is_ptr) {
+                sym = decode_func_return(sfc);
+            }
         }
         if (sym == sym_seq_point)
             return sym;
@@ -313,6 +341,10 @@ static int decode_stmt(struct scan_file_control *sfc, struct symbol *symbol,
                 sym = decode_func_call(sfc, orig_symbol);
             } else {
                 debug_object(&tmp_obj, "TODO");
+            }
+        } else if (sym == sym_return) {
+            if (sfc->function->object.is_ptr) {
+                sym = decode_func_return(sfc);
             }
         }
 

@@ -104,21 +104,6 @@ struct scan_file_control {
 
 int parser(struct file_info *fi);
 
-static __always_inline void bad(struct scan_file_control *sfc,
-                                const char *warning)
-{
-    print("\e[1m\e[31mOSC ERROR\e[0m\e[0m: \e[1m%s\e[0m\n", warning);
-    print("    \e[36m-->\e[0m %s:%lu:%u\n", sfc->fi->name, sfc->line,
-          sfc->offset);
-    print("    \e[36m|\e[0m    %s", sfc->buffer);
-    print("    \e[36m|\e[0m     ");
-    for (int i = 0; i < sfc->offset; i++)
-        print(" ");
-    print("\e[31m^\e[0m\n");
-}
-
-#define syntax_error(sfc) bad(sfc, "syntax error")
-
 static __always_inline int blank(char ch)
 {
     switch (ch) {
@@ -131,6 +116,56 @@ static __always_inline int blank(char ch)
     }
     return 0;
 }
+
+static __always_inline int bad_get_last_offset(struct scan_file_control *sfc)
+{
+    /* we manually get the offset of last id symbol.
+     * Otherwise, if we use sfc->offset to get the lcoation it
+     * will be the first offset of next symbol
+     */
+    for (int i = sfc->offset; i >= 0; i--) {
+        if (blank(sfc->buffer[i]))
+            continue;
+        switch (sfc->buffer[i]) {
+        case '(':
+        case ')':
+        case '{':
+        case '}':
+        case '[':
+        case ']':
+        case '*':
+        case '<':
+        case '>':
+        case '=':
+        case '+':
+        case '-':
+        case ',':
+        case '.':
+        case ';':
+            break;
+        default:
+            return i;
+        }
+    }
+    WARN_ON(1, "cannot get last symbol's offset");
+    return -1;
+}
+
+static __always_inline void bad(struct scan_file_control *sfc,
+                                const char *warning)
+{
+    int last_local = bad_get_last_offset(sfc);
+    print("\e[1m\e[31mOSC ERROR\e[0m\e[0m: \e[1m%s\e[0m\n", warning);
+    print("    \e[36m-->\e[0m %s:%lu:%u\n", sfc->fi->name, sfc->line,
+          sfc->offset);
+    print("    \e[36m|\e[0m    %s", sfc->buffer);
+    print("    \e[36m|\e[0m    ");
+    for (int i = 0; i < last_local; i++)
+        print(" ");
+    print("\e[31m^\e[0m\n");
+}
+
+#define syntax_error(sfc) bad(sfc, "syntax error")
 
 #define for_each_line(sfc)                   \
     while ((sfc)->offset = 0, (sfc)->line++, \
