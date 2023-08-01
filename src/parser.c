@@ -112,10 +112,8 @@ static void debug_object(struct object *obj, const char *note)
  * - type __attribute__ ptr id
  */
 static int compose_object(struct scan_file_control *sfc, struct object *obj,
-                          int sym)
+                          int sym, struct symbol *symbol)
 {
-    struct symbol *symbol = NULL;
-
     object_init(obj);
 
     /* variable declaration */
@@ -170,7 +168,7 @@ static int get_object(struct scan_file_control *sfc, struct object *obj)
         return -ENODATA;
     debug_token(sfc, sym, symbol);
 
-    return compose_object(sfc, obj, sym);
+    return compose_object(sfc, obj, sym, symbol);
 }
 
 static struct variable *var_alloc(void)
@@ -249,8 +247,10 @@ static int decode_func_call(struct scan_file_control *sfc,
                 continue;
             }
             /* We only check the mut attribute */
-            if (var->object.attr & ATTR_FLAGS_MUT)
+            if (var->object.attr & ATTR_FLAGS_MUT) {
+                debug_object(&var->object, "dropped the var");
                 var->is_dropped = 1;
+            }
         }
     }
 
@@ -264,7 +264,7 @@ static int decode_stmt(struct scan_file_control *sfc, struct symbol *symbol,
         struct object tmp_obj;
 
         debug_token(sfc, sym, symbol);
-        sym = compose_object(sfc, &tmp_obj, sym);
+        sym = compose_object(sfc, &tmp_obj, sym, symbol);
         if (sym == sym_id) {
             struct symbol *orig_symbol = symbol;
 

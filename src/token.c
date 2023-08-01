@@ -292,6 +292,8 @@ int get_token(struct scan_file_control *sfc, struct symbol **id)
 
 int cmp_token(struct symbol *l, struct symbol *r)
 {
+    BUG_ON(l == NULL, "null ptr");
+    BUG_ON(r == NULL, "null ptr");
     if (l->flags != r->flags)
         return 0;
     if (!(strncmp(l->name, r->name, max(l->len, r->len)) == 0))

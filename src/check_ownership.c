@@ -34,7 +34,7 @@ static int is_same_and_writeable(struct scan_file_control *sfc,
 {
     struct object *orig = &var->object;
 
-    if (orig->id != obj->id)
+    if (!cmp_token(obj->id, orig->id))
         return 0;
     if ((orig->attr & ATTR_FLAGS_BRW) && !(orig->attr & ATTR_FLAGS_MUT)) {
         bad(sfc, "Don't write to immutable object");
