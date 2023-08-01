@@ -265,6 +265,9 @@ static int decode_func_return(struct scan_file_control *sfc)
 
     while (sym = get_token(sfc, &symbol), sym != -ENODATA) {
         debug_token(sfc, sym, symbol);
+        // TODO: address of
+        if (sym == sym_logic_and)
+            continue;
         if (sym == sym_id) {
             struct object tmp_obj;
             sym = compose_object(sfc, &tmp_obj, sym, symbol);
@@ -344,8 +347,7 @@ static int decode_stmt(struct scan_file_control *sfc, struct symbol *symbol,
                 debug_object(&tmp_obj, "function call start");
                 sym = decode_func_call(sfc, orig_symbol);
             } else {
-                debug_object(&tmp_obj, "TODO");
-                WARN_ON(1, "we might not reach here");
+                debug_object(&tmp_obj, "decalaration only");
             }
         } else if (sym == sym_return) {
             if (sfc->function->object.is_ptr) {

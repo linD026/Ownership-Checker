@@ -145,21 +145,62 @@ static __always_inline int check_symbol_table(struct scan_file_control *sfc,
     return __check_symbol_table(sfc, id, 0);
 }
 
-static int __skip_comments(struct scan_file_control *sfc)
-{
-    if (strncmp("//", &sfc->buffer[sfc->offset], 2) == 0) {
-        if (!next_line(sfc))
-            return -ENODATA;
-        /* try_decode_action will inc offset, so we roll back here. */
-        sfc->offset--;
-        return -EAGAIN;
-    }
-    return 0;
-}
-
+//
+// We have two type of comments:
+// first:  //
+// second: /* ... */
+//          ^      ^
+//          |      \_step2
+//          \_step1
+//
 static int skip_comments(struct scan_file_control *sfc)
 {
-    return try_decode_action(sfc, __skip_comments);
+    int step_1 = 0;
+
+again:
+    buffer_for_each (sfc) {
+        if (ch == '/') {
+            /* check the first type */
+            if (sfc->offset + 1 < sfc->size && sfc->offset + 1 != '\n') {
+                sfc->offset++;
+                if (sfc->buffer[sfc->offset] == '/') {
+                    if (!next_line(sfc))
+                        return -ENODATA;
+                    /* try_decode_action will inc offset, so rollback here. */
+                    sfc->offset--;
+                    return -EAGAIN;
+                } else if (sfc->buffer[sfc->offset] == '*') {
+                    /* Enter the step 1 */
+                    step_1 = 1;
+                } else {
+                    /* We are not the comment symbols, rollback */
+                    sfc->offset--;
+                    return 0;
+                }
+            }
+        } else if (ch == '*' && step_1) {
+            if (sfc->offset + 1 < sfc->size && sfc->offset + 1 != '\n') {
+                sfc->offset++;
+                if (sfc->buffer[sfc->offset] == '/') {
+                    return -EAGAIN;
+                }
+            }
+        } else if (!step_1)
+            return 0;
+        /*
+         * If we are step 1, we don't have to drop the progress
+         * since the comment can be the different line.
+         */
+    }
+
+    if (step_1) {
+        if (next_line(sfc))
+            goto again;
+        bad(sfc, "non-closed comment");
+        return -ENODATA;
+    }
+
+    return 0;
 }
 
 struct symbol_id_struct {
