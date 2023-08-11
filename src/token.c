@@ -344,3 +344,31 @@ const char *token_name(int n)
 
     return sym_table[n].name;
 }
+
+static unsigned long random_generation = 0;
+
+struct symbol *new_random_symbol(void)
+{
+    char *buffer = NULL;
+    unsigned long buffer_size = 128;
+    unsigned long seed;
+    struct symbol_id_struct *symbol_id;
+
+    symbol_id = malloc(sizeof(struct symbol_id_struct));
+    BUG_ON(!symbol_id, "malloc");
+
+    buffer = malloc(buffer_size * sizeof(char));
+    BUG_ON(!buffer, "malloc");
+
+    seed = random_generation++;
+    snprintf(buffer, buffer_size, "#auto_generated_anon_%lu#", seed);
+    buffer[buffer_size - 1] = '\0';
+
+    symbol_id->sym.name = buffer;
+    symbol_id->sym.len = strlen(buffer);
+    symbol_id->sym.flags = sym_id;
+
+    list_add_tail(&symbol_id->node, &symbol_id_container.head);
+
+    return &symbol_id->sym;
+}

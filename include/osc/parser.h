@@ -29,10 +29,9 @@ struct symbol {
 struct object {
     int storage_class;
     int type;
-    int is_struct;
-    struct symbol *struct_id;
     int is_ptr;
     int attr;
+    struct symbol *struct_id;
     struct symbol *id;
 };
 
@@ -42,31 +41,61 @@ struct dropped_info {
     unsigned int offset;
 };
 
+/*
+ * To reduce the maintainability, this is for the type information
+ * and the variable information for structure. So that we can easily
+ * create the new variable by duplicating the type info.
+ */
+struct structure {
+    /*
+     * struct info
+     * NOTE: Make sure @object is the first member to
+     * align with the @object in struct variable.
+     * See the comments in struct variable.
+     */
+    struct object object;
+
+    /* variable */
+    struct list_head struct_head;
+
+    /* For struct file_info */
+    struct list_head node;
+};
+
 /* the token should be related to pointer type. */
 struct variable {
     int is_dropped;
     struct dropped_info dropped_info;
 
-    struct object object;
-    struct list_head scope_node;
-    struct list_head structure_node;
-    struct list_head func_scope_node;
+    union {
+        /*
+         * The @object in structure is same as this.
+         * So we can use vairable->object.type to determine
+         * the variable is structure or not.
+         */
+        struct object object;
+        struct structure struct_info;
+    };
 
-    /* For the function only */
-    struct list_head parameter_node;
+    // TODO: Simplify the init function
+    union {
+        /* Default (scope) variable */
+        struct {
+            struct list_head scope_node;
+            struct list_head func_scope_node;
+        };
+
+        /* struct member */
+        struct list_head struct_node;
+
+        /* For the function only */
+        struct list_head parameter_node;
+    };
 };
 
 struct scope {
     struct list_head node;
     struct list_head scope_var_head;
-};
-
-struct structure {
-    /* variable */
-    struct list_head var_head;
-
-    /* For struct file_info */
-    struct list_head node;
 };
 
 struct function {
@@ -120,7 +149,8 @@ static __always_inline int blank(char ch)
 static __always_inline int bad_get_last_offset(const char *buffer,
                                                unsigned int offset)
 {
-    /* we manually get the offset of last id symbol.
+    /*
+     * we manually get the offset of last id symbol.
      * Otherwise, if we use sfc->offset to get the lcoation it
      * will be the first offset of next symbol
      */
@@ -455,5 +485,7 @@ static __allow_unused void __debug_token(struct scan_file_control *sfc, int sym,
     do {                              \
     } while (0)
 #endif /* CONFIG_DEBUG */
+
+struct symbol *new_random_symbol(void);
 
 #endif /* __OSC_PARSER_H__ */

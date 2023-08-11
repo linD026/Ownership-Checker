@@ -10,10 +10,11 @@ static void dump_object(struct object *obj, struct function *func,
           func->object.id->name, place);
     if (obj->storage_class != sym_dump)
         print("%s ", token_name(obj->storage_class));
-    if (obj->type != sym_dump)
+    if (obj->type != sym_dump) {
         print("%s ", token_name(obj->type));
-    if (obj->is_struct)
-        print("%s ", obj->struct_id->name);
+        if (obj->type == sym_struct)
+            print("%s ", obj->struct_id->name);
+    }
     if (obj->attr & ATTR_FLAS_MASK) {
         if (obj->attr & ATTR_FLAGS_BRW)
             print("__brw ");
@@ -43,6 +44,7 @@ static int is_same_and_writable(struct scan_file_control *sfc,
     if ((orig->attr & ATTR_FLAGS_MUT) && var->is_dropped) {
         bad(sfc, "Don't write to the dropped object");
         bad_on_dropped_info(sfc, &var->dropped_info);
+        return -1;
     }
     // TODO: To compatible with the normal C,
     // we only check the pointer which has self-defined attributes

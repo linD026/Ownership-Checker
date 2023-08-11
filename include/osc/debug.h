@@ -63,6 +63,10 @@ static __always_inline __allow_unused void dump_stack(void)
         __w_i_c_d;                                                 \
     })
 
+#ifdef CONFIG_DEBUG
 #define pr_debug(fmt, ...) pr_info("DEBUG: " fmt, ##__VA_ARGS__)
+#else
+#define pr_debug(fmt, ...)
+#endif
 
 #endif /* __OSC_DEBUG_H__ */

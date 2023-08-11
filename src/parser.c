@@ -27,19 +27,13 @@
  *      4. check all the token's attr.
  */
 
-static struct structure *search_structure(struct symbol *id)
-{
-    return NULL;
-}
-
 static void object_init(struct object *object)
 {
     object->storage_class = sym_dump;
     object->type = sym_dump;
-    object->is_struct = 0;
-    object->struct_id = NULL;
     object->is_ptr = 0;
     object->attr = 0;
+    object->struct_id = NULL;
     object->id = NULL;
 }
 
@@ -49,11 +43,16 @@ static int cmp_object(struct object *l, struct object *r)
         return 0;
     if (l->type != r->type)
         return 0;
-    if (l->is_struct && cmp_token(l->struct_id, r->struct_id))
-        return 0;
     if (l->is_ptr != r->is_ptr)
         return 0;
     if (l->attr != r->attr)
+        return 0;
+    // TODO: We should improve this conditionx checkings...
+    if (l->struct_id && r->struct_id) {
+        if (!cmp_token(l->struct_id, r->struct_id))
+            return 0;
+    } else if ((l->struct_id && !r->struct_id) ||
+               (!l->struct_id && r->struct_id))
         return 0;
     if (!cmp_token(l->id, r->id))
         return 0;
@@ -83,10 +82,11 @@ static __allow_unused void raw_debug_object(struct object *obj)
 #ifdef CONFIG_DEBUG
     if (obj->storage_class != sym_dump)
         print("%s ", token_name(obj->storage_class));
-    if (obj->type != sym_dump)
+    if (obj->type != sym_dump) {
         print("%s ", token_name(obj->type));
-    if (obj->is_struct)
-        print("%s ", obj->struct_id->name);
+        if (obj->type == sym_struct)
+            print("%s ", obj->struct_id->name);
+    }
     if (obj->attr & ATTR_FLAS_MASK) {
         if (obj->attr & ATTR_FLAGS_BRW)
             print("__brw ");
@@ -111,6 +111,10 @@ static void debug_object(struct object *obj, const char *note)
 #endif /* CONFIG_DEBUG */
 }
 
+static struct structure *compose_structure(struct scan_file_control *sfc,
+                                           struct object *obj, int sym,
+                                           struct symbol *symbol);
+
 /*
  * The object type is:
  * - type __attribute__ ptr id
@@ -129,17 +133,42 @@ static int compose_object(struct scan_file_control *sfc, struct object *obj,
     if (range_in_sym(type, sym)) {
         obj->type = sym;
         if (sym == sym_struct) {
-            /* structure */
-            bad(sfc, "Unsupport structure");
-            BUG_ON(1, "unsupport");
+            /*
+             * structure
+             *
+             * There are two type of declarations:
+             *
+             *   1. struct struct_id { } [id];
+             *   2. struct { } ...;
+             *
+             * The function return type:
+             *
+             *   3. struct struct_id * function() { }
+             *
+             * And, the variable declaration:
+             *
+             *   4. struct struct_id * id = ... ;
+             */
             sym = get_token(sfc, &symbol);
+            debug_token(sfc, sym, symbol);
             if (sym == sym_id) {
-                // struct structure __allow_unused *tmp =  search_structure();
+                /* type 1, 3, 4 */
                 obj->struct_id = symbol;
-            } else {
-                syntax_error(sfc);
-                return -EINVAL;
+                sym = get_token(sfc, &symbol);
+                debug_token(sfc, sym, symbol);
+            } else
+                /* type 2 */
+                obj->struct_id = new_random_symbol();
+
+            if (sym == sym_left_brace) {
+                /* type 1 */
+                // TODO: insert to the scope meta data
+                compose_structure(sfc, obj, sym, symbol);
+                return sym_struct;
             }
+
+            /* type 3, 4 */
+            goto attr_again;
         }
         sym = get_token(sfc, &symbol);
         debug_token(sfc, sym, symbol);
@@ -194,12 +223,165 @@ static struct variable *var_alloc(void)
 
     var->is_dropped = 0;
     object_init(&var->object);
+    list_init(&var->struct_info.struct_head);
+    list_init(&var->struct_info.node);
     list_init(&var->scope_node);
-    list_init(&var->structure_node);
+    list_init(&var->struct_node);
     list_init(&var->func_scope_node);
     list_init(&var->parameter_node);
 
     return var;
+}
+
+#ifdef CONFIG_DEBUG
+static void debug_space_level(int nested_level)
+{
+    for (int i = 0; i < nested_level; i++)
+        print("    ");
+}
+
+static void raw_debug_structure(struct scan_file_control *sfc,
+                                struct structure *structure, int nested_level)
+{
+    print("struct %s ", structure->object.struct_id->name);
+    print("{\n");
+    list_for_each (&structure->struct_head) {
+        struct variable *mem = container_of(curr, struct variable, struct_node);
+        debug_space_level(nested_level);
+        if (mem->object.type == sym_struct)
+            raw_debug_structure(sfc, &mem->struct_info, nested_level + 1);
+        else {
+            raw_debug_object(&mem->object);
+            print(";\n");
+        }
+    }
+
+    if (nested_level > 1)
+        debug_space_level(nested_level - 1);
+
+    if (structure->object.id) {
+        print("} %s;\n", structure->object.id->name);
+    } else {
+        print("};\n");
+    }
+}
+#endif
+
+static void debug_structure(struct scan_file_control *sfc,
+                            struct structure *structure)
+{
+#ifdef CONFIG_DEBUG
+    print("[STRUCT START]\n");
+    raw_debug_structure(sfc, structure, 1);
+    print("[STRUCT END]\n");
+#endif /* CONFIG_DEBUG */
+}
+
+static void copy_structure(struct structure *dst, struct structure *src)
+{
+    copy_object(&dst->object, &src->object);
+
+    list_for_each (&src->struct_head) {
+        struct variable *src_mem =
+            container_of(curr, struct variable, struct_node);
+        struct variable *dst_var = var_alloc();
+
+        BUG_ON(!dst_var, "var_alloc");
+        debug_object(&src_mem->object, "copying the object");
+        if (src_mem->object.type == sym_struct)
+            copy_structure(&dst_var->struct_info, &src_mem->struct_info);
+        else
+            copy_object(&dst_var->object, &src_mem->object);
+        list_add_tail(&dst_var->struct_node, &dst->struct_head);
+    }
+}
+
+/* @obj should be the id */
+static struct structure *search_structure(struct scan_file_control *sfc,
+                                          struct object *obj)
+{
+    list_for_each (&sfc->fi->struct_head) {
+        struct structure *tmp = container_of(curr, struct structure, node);
+        if (cmp_token(obj->struct_id, tmp->object.struct_id))
+            return tmp;
+    }
+
+    bad(sfc, "undefined structure type");
+    return NULL;
+}
+
+/*
+ * For the structure, we use @variable as member isntead of using
+ * @object, so that we can easly create the new variable by duplicating
+ * the struct type.
+ *
+ * TYPE: structure
+ * VAR: variable
+ *  => Determine the type => create the var object
+ */
+static struct structure *compose_structure(struct scan_file_control *sfc,
+                                           struct object *obj, int sym,
+                                           struct symbol *symbol)
+{
+    struct variable *mem = NULL;
+    struct structure *s = malloc(sizeof(struct structure));
+    BUG_ON(!s, "malloc");
+
+    copy_object(&s->object, obj);
+    list_init(&s->struct_head);
+    // TODO: insert to the scope meta data (or internal struct),
+    // see compose_object()
+    list_add_tail(&s->node, &sfc->fi->struct_head);
+
+    pr_debug("creating the structure...\n");
+
+    // get the token to create the structure
+    // init all the member as unused state
+again:
+    mem = var_alloc();
+    BUG_ON(!mem, "var_alloc");
+    sym = get_object(sfc, &mem->object);
+    if (sym != sym_right_brace) {
+        WARN_ON(sym != sym_id && sym != sym_struct, "unexpect symbol:%d", sym);
+        sym = get_token(sfc, &symbol);
+        debug_token(sfc, sym, symbol);
+        if (sym == sym_id) {
+            if (mem->object.type == sym_struct) {
+                struct structure *tmp = search_structure(sfc, &mem->object);
+                BUG_ON(!tmp, "not found the structure");
+                debug_structure(sfc, tmp);
+                pr_debug("copying the structure\n");
+                copy_structure(&mem->struct_info, tmp);
+                debug_structure(sfc, &mem->struct_info);
+            }
+            /*
+             * copy_structure() will clean the mem->object.id,
+             * so write the id here.
+             */
+            mem->object.id = symbol;
+            debug_object(&mem->object, "the structure member");
+            sym = get_token(sfc, &symbol);
+            debug_token(sfc, sym, symbol);
+        }
+        if (sym == sym_seq_point) {
+            list_add_tail(&mem->struct_node, &s->struct_head);
+            goto again;
+        }
+    }
+
+    /*
+     * Two types to close the struct:
+     *
+     *   - struct { } ;
+     *   - struct { } id ;
+     */
+    if (WARN_ON(sym != sym_right_brace && sym != sym_id,
+                "unexpect close structure"))
+        syntax_error(sfc);
+
+    pr_debug("the end of creating the structure\n");
+
+    return s;
 }
 
 /* function scope related functions */
@@ -271,6 +453,12 @@ static int decode_func_return(struct scan_file_control *sfc)
         if (sym == sym_id) {
             struct object tmp_obj;
             sym = compose_object(sfc, &tmp_obj, sym, symbol);
+            if (sym == sym_struct) {
+                struct structure __allow_unused *tmp =
+                    search_structure(sfc, &tmp_obj);
+                //TODO: check structure member's pointer
+                pr_debug("check the structure ownership owned\n");
+            }
             check_ownership_owned(sfc, &tmp_obj);
             return sym;
         } else if (sym == sym_seq_point)
@@ -293,6 +481,12 @@ static int decode_expr(struct scan_file_control *sfc, struct symbol *symbol,
             if (prev_sym == sym_id) {
                 struct object tmp_obj;
                 sym = compose_object(sfc, &tmp_obj, prev_sym, prev_symbol);
+                if (sym == sym_struct) {
+                    struct structure __allow_unused *tmp =
+                        search_structure(sfc, &tmp_obj);
+                    //TODO: check structure member's pointer
+                    pr_debug("check the structure ownership writable\n");
+                }
                 check_ownership_writable(sfc, &tmp_obj);
             }
             sym = decode_expr(sfc, symbol, sym);
@@ -323,8 +517,16 @@ static int decode_stmt(struct scan_file_control *sfc, struct symbol *symbol,
 
         debug_token(sfc, sym, symbol);
         sym = compose_object(sfc, &tmp_obj, sym, symbol);
-        if (sym == sym_id) {
+        if (sym == sym_id || sym == sym_struct) {
             struct symbol *orig_symbol = symbol;
+
+            if (sym == sym_struct) {
+#ifdef CONFIG_DEBUG
+                struct structure *tmp = search_structure(sfc, &tmp_obj);
+                debug_structure(sfc, tmp);
+#endif
+                continue;
+            }
 
             /* variable declaration */
             if (range_in_sym(storage_class, tmp_obj.storage_class) ||
@@ -340,6 +542,7 @@ static int decode_stmt(struct scan_file_control *sfc, struct symbol *symbol,
             if (sym == sym_eq) {
                 /* assignment */
                 debug_token(sfc, sym, symbol);
+                debug_object(&tmp_obj, "be wrote");
                 check_ownership_writable(sfc, &tmp_obj);
                 sym = decode_expr(sfc, symbol, sym);
             } else if (sym == sym_left_paren) {
@@ -371,6 +574,8 @@ static int decode_function_scope(struct scan_file_control *sfc)
         if (sym == sym_right_brace) {
             return sym;
         } else if (sym == sym_left_brace) {
+            // TODO: we should create @scope and maintain all the object's
+            // lifetime by it.
             /*
              * The recursive function call should be after sym_right_brace,
              * Otherwise, we cannot get the brace pairs correctly.
@@ -451,22 +656,42 @@ static int decode_file_scope(struct scan_file_control *sfc)
     struct symbol *buffer = NULL;
     int sym = sym_dump;
 
+again:
     /*
      * Get the object like:
      * - struct struture
      * - int __attr *function
      */
-    if (get_object(sfc, &obj) == -ENODATA)
+    sym = get_object(sfc, &obj);
+    if (sym == -ENODATA)
         return -ENODATA;
 
-    /* Struture */
-    // if next token is "id (" is should be function.
-    // Otherwise is can be struct declara or var declara.
+        /*
+     * If the sym is sym_struct, this means that the function
+     * might be return type is struct.
+     */
+
+#ifdef CONFIG_DEBUG
+    debug_object(&obj, "global object");
+    if (sym == sym_struct) {
+        struct structure *tmp = search_structure(sfc, &obj);
+        BUG_ON(!tmp, "we should search the structure successfully");
+        debug_structure(sfc, tmp);
+    }
+#endif
+
+    /*
+     * Skip the seq_point symbol.
+     * We have to handle this outside of compose functions.
+     */
+    sym = get_token(sfc, &buffer);
+    debug_token(sfc, sym, buffer);
+    if (sym == sym_seq_point)
+        goto again;
 
     /* Function */
     sfc->function = insert_function(sfc->fi, &obj);
 
-    sym = get_token(sfc, &buffer);
     if (sym == sym_left_paren) {
         /* parse te function paramters */
         while (1) {
@@ -492,9 +717,10 @@ static int decode_file_scope(struct scan_file_control *sfc)
 
         sym = get_token(sfc, &buffer);
         /* function declaration */
-        if (sym == sym_seq_point)
+        if (sym == sym_seq_point) {
+            debug_function(sfc, sfc->function);
             goto out;
-        else if (sym == sym_left_brace) {
+        } else if (sym == sym_left_brace) {
             /* function definition */
             debug_function(sfc, sfc->function);
             sym = decode_function_scope(sfc);

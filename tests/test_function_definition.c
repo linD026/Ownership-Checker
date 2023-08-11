@@ -1,6 +1,6 @@
 int func(int a, int __mut b, int __brw *c, int __brw *d)
 {
-    int e;
+    int __brw *e = d;
     int f = a + c;
 
     a = 1;
@@ -11,6 +11,8 @@ int func(int a, int __mut b, int __brw *c, int __brw *d)
     {
         a = 1;
     }
+
+    *e = 1;
 }
 
 int func2(int a, int __mut b, int __brw *c, int __brw *d)
