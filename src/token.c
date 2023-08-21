@@ -347,7 +347,7 @@ const char *token_name(int n)
 
 static unsigned long random_generation = 0;
 
-struct symbol *new_random_symbol(void)
+struct symbol *new_anon_symbol(void)
 {
     char *buffer = NULL;
     unsigned long buffer_size = 128;

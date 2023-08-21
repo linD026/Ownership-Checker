@@ -486,6 +486,6 @@ static __allow_unused void __debug_token(struct scan_file_control *sfc, int sym,
     } while (0)
 #endif /* CONFIG_DEBUG */
 
-struct symbol *new_random_symbol(void);
+struct symbol *new_anon_symbol(void);
 
 #endif /* __OSC_PARSER_H__ */

@@ -158,7 +158,7 @@ static int compose_object(struct scan_file_control *sfc, struct object *obj,
                 debug_token(sfc, sym, symbol);
             } else
                 /* type 2 */
-                obj->struct_id = new_random_symbol();
+                obj->struct_id = new_anon_symbol();
 
             if (sym == sym_left_brace) {
                 /* type 1 */
