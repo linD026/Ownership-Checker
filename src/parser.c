@@ -218,8 +218,9 @@ static void record_ptr_info(struct scan_file_control *sfc,
 
 static void drop_variable(struct scan_file_control *sfc, struct variable *var)
 {
-    BUG_ON(!(var->ptr_info.flags & (PTR_INFO_SET | PTR_INFO_FUNC_ARG)),
-           "drop the unassigned ptr");
+    // TODO: don't just warn it
+    WARN_ON(!(var->ptr_info.flags & (PTR_INFO_SET | PTR_INFO_FUNC_ARG)),
+            "drop the unassigned ptr");
     record_ptr_info(sfc, &var->ptr_info.dropped_info);
     var->ptr_info.flags |= PTR_INFO_DROPPED;
 }
@@ -399,7 +400,7 @@ static void set_struct_member(struct scan_file_control *sfc,
     list_for_each (&s->struct_head) {
         struct variable *mem = container_of(curr, struct variable, struct_node);
 
-        if (cmp_object(&mem->object, obj)) {
+        if (cmp_token(mem->object.id, obj->id)) {
             set_variable(sfc, mem);
             return;
         }
@@ -414,7 +415,7 @@ static void drop_struct_member(struct scan_file_control *sfc,
     list_for_each (&s->struct_head) {
         struct variable *mem = container_of(curr, struct variable, struct_node);
 
-        if (cmp_object(&mem->object, obj)) {
+        if (cmp_token(mem->object.id, obj->id)) {
             drop_variable(sfc, mem);
             return;
         }

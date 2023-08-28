@@ -1,5 +1,5 @@
 struct data_struct {
-    int *ptrA;
+    int __mut *ptrA;
     int varA;
     unsigned long *ptrB;
 };
@@ -31,12 +31,14 @@ struct data_struct *function(struct data_struct *obj)
     };
     // } scope_data;
     struct scope_data_struct scope_data;
+    int a;
     // TODO: init
 
     data = obj;
     // data = &scope_data;
 
     pass_struct_member_function(data+1);
+    data->ptrA = &a;
     pass_struct_member_function(data->ptrA);
 
     return data;
