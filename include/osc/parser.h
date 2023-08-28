@@ -35,10 +35,20 @@ struct object {
     struct symbol *id;
 };
 
-struct dropped_info {
+#define PTR_INFO_DROPPED 0x0001
+#define PTR_INFO_SET 0x0002
+#define PTR_INFO_FUNC_ARG 0x0004
+
+struct ptr_info_internal {
     char buffer[MAX_BUFFER_LEN];
     unsigned long line;
     unsigned int offset;
+};
+
+struct ptr_info {
+    unsigned int flags;
+    struct ptr_info_internal dropped_info;
+    struct ptr_info_internal set_info;
 };
 
 /*
@@ -64,8 +74,7 @@ struct structure {
 
 /* the token should be related to pointer type. */
 struct variable {
-    int is_dropped;
-    struct dropped_info dropped_info;
+    struct ptr_info ptr_info;
 
     union {
         /*

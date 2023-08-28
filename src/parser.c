@@ -47,7 +47,7 @@ static int cmp_object(struct object *l, struct object *r)
         return 0;
     if (l->attr != r->attr)
         return 0;
-    // TODO: We should improve this conditionx checkings...
+    // TODO: We should improve this condition checkings...
     if (l->struct_id && r->struct_id) {
         if (!cmp_token(l->struct_id, r->struct_id))
             return 0;
@@ -204,16 +204,37 @@ static int get_object(struct scan_file_control *sfc, struct object *obj)
     return compose_object(sfc, obj, sym, symbol);
 }
 
-static void drop_variable(struct scan_file_control *sfc, struct variable *var)
+static void record_ptr_info(struct scan_file_control *sfc,
+                            struct ptr_info_internal *info)
 {
-    strncpy(var->dropped_info.buffer, sfc->buffer, MAX_BUFFER_LEN);
-    var->dropped_info.line = sfc->line;
+    strncpy(info->buffer, sfc->buffer, MAX_BUFFER_LEN);
+    info->line = sfc->line;
     /*
      * We adapt the offset to the last symbol when we report the warning.
      * See the bad_get_last_offset();
      */
-    var->dropped_info.offset = sfc->offset;
-    var->is_dropped = 1;
+    info->offset = sfc->offset;
+}
+
+static void drop_variable(struct scan_file_control *sfc, struct variable *var)
+{
+    BUG_ON(!(var->ptr_info.flags & (PTR_INFO_SET | PTR_INFO_FUNC_ARG)),
+           "drop the unassigned ptr");
+    record_ptr_info(sfc, &var->ptr_info.dropped_info);
+    var->ptr_info.flags |= PTR_INFO_DROPPED;
+}
+
+static void set_variable(struct scan_file_control *sfc, struct variable *var)
+{
+#ifdef CONFIG_DEBUG
+    if (var->ptr_info.flags & PTR_INFO_DROPPED) {
+        pr_debug("variable %s; re-assigned after dropped\n",
+                 var->object.id->name);
+    }
+#endif
+    record_ptr_info(sfc, &var->ptr_info.set_info);
+    var->ptr_info.flags &= ~PTR_INFO_DROPPED;
+    var->ptr_info.flags |= PTR_INFO_SET;
 }
 
 static struct variable *var_alloc(void)
@@ -221,7 +242,7 @@ static struct variable *var_alloc(void)
     struct variable *var = malloc(sizeof(struct variable));
     BUG_ON(!var, "malloc");
 
-    var->is_dropped = 0;
+    var->ptr_info.flags = 0;
     object_init(&var->object);
     list_init(&var->struct_info.struct_head);
     list_init(&var->struct_info.node);
@@ -384,6 +405,36 @@ again:
     return s;
 }
 
+static void set_struct_member(struct scan_file_control *sfc,
+                              struct structure *s, struct object *obj)
+{
+    list_for_each (&s->struct_head) {
+        struct variable *mem = container_of(curr, struct variable, struct_node);
+
+        if (cmp_object(&mem->object, obj)) {
+            set_variable(sfc, mem);
+            return;
+        }
+    }
+
+    bad(sfc, "undefined structure member");
+}
+
+static void drop_struct_member(struct scan_file_control *sfc,
+                               struct structure *s, struct object *obj)
+{
+    list_for_each (&s->struct_head) {
+        struct variable *mem = container_of(curr, struct variable, struct_node);
+
+        if (cmp_object(&mem->object, obj)) {
+            drop_variable(sfc, mem);
+            return;
+        }
+    }
+
+    bad(sfc, "undefined structure member");
+}
+
 /* function scope related functions */
 
 static struct variable *search_var_in_function(struct function *func,
@@ -456,12 +507,19 @@ static int decode_func_return(struct scan_file_control *sfc)
             if (sym == sym_struct) {
                 struct structure __allow_unused *tmp =
                     search_structure(sfc, &tmp_obj);
-                //TODO: check structure member's pointer
-                pr_debug("check the structure ownership owned\n");
+
+                sym = get_token(sfc, &symbol);
+                debug_token(sfc, sym, symbol);
+                if (sym == sym_dot || sym == sym_ptr_assign) {
+                    struct object tmp_mem_obj;
+                    sym = compose_object(sfc, &tmp_mem_obj, sym, symbol);
+                    debug_object(&tmp_mem_obj, "struct member");
+                }
             }
             check_ownership_owned(sfc, &tmp_obj);
             return sym;
-        } else if (sym == sym_seq_point)
+        }
+        if (sym == sym_seq_point)
             return sym;
     }
 
@@ -518,6 +576,7 @@ static int decode_stmt(struct scan_file_control *sfc, struct symbol *symbol,
         debug_token(sfc, sym, symbol);
         sym = compose_object(sfc, &tmp_obj, sym, symbol);
         if (sym == sym_id || sym == sym_struct) {
+            struct variable *tmp_var = NULL;
             struct symbol *orig_symbol = symbol;
 
             if (sym == sym_struct) {
@@ -535,12 +594,15 @@ static int decode_stmt(struct scan_file_control *sfc, struct symbol *symbol,
                 copy_object(&var->object, &tmp_obj);
                 list_add_tail(&var->func_scope_node,
                               &sfc->function->func_scope_var_head);
+                tmp_var = var;
                 debug_object(&var->object, "declare var in scope");
             }
 
             sym = get_token(sfc, &symbol);
             if (sym == sym_eq) {
                 /* assignment */
+                if (tmp_var && tmp_var->object.is_ptr)
+                    set_variable(sfc, tmp_var);
                 debug_token(sfc, sym, symbol);
                 debug_object(&tmp_obj, "be wrote");
                 check_ownership_writable(sfc, &tmp_obj);
@@ -693,7 +755,7 @@ again:
     sfc->function = insert_function(sfc->fi, &obj);
 
     if (sym == sym_left_paren) {
-        /* parse te function paramters */
+        /* parse the function paramters */
         while (1) {
             struct variable *param = var_alloc();
 
@@ -702,9 +764,11 @@ again:
             if (unlikely(sym != sym_id && param->object.type == sym_void)) {
                 free(param);
                 break;
-            } else
+            } else {
                 list_add_tail(&param->parameter_node,
                               &sfc->function->parameter_var_head);
+                param->ptr_info.flags |= PTR_INFO_FUNC_ARG;
+            }
             sym = get_token(sfc, &buffer);
             if (sym != sym_comma)
                 break;

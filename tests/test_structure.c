@@ -32,5 +32,7 @@ struct data_struct *function(struct data_struct *obj)
     data = obj;
     // data = &scope_data;
 
+    // funcB(data->ptrA);
+
     return data;
 }
