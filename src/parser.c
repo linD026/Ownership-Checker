@@ -261,8 +261,7 @@ static void debug_space_level(int nested_level)
         print("    ");
 }
 
-static void raw_debug_structure(struct scan_file_control *sfc,
-                                struct structure *structure, int nested_level)
+static void raw_debug_structure(struct structure *structure, int nested_level)
 {
     print("struct %s ", structure->object.struct_id->name);
     print("{\n");
@@ -270,7 +269,7 @@ static void raw_debug_structure(struct scan_file_control *sfc,
         struct variable *mem = container_of(curr, struct variable, struct_node);
         debug_space_level(nested_level);
         if (mem->object.type == sym_struct)
-            raw_debug_structure(sfc, &mem->struct_info, nested_level + 1);
+            raw_debug_structure(&mem->struct_info, nested_level + 1);
         else {
             raw_debug_object(&mem->object);
             print(";\n");
@@ -288,12 +287,11 @@ static void raw_debug_structure(struct scan_file_control *sfc,
 }
 #endif
 
-static void debug_structure(struct scan_file_control *sfc,
-                            struct structure *structure)
+static void debug_structure(struct structure *structure, const char *note)
 {
 #ifdef CONFIG_DEBUG
-    print("[STRUCT START]\n");
-    raw_debug_structure(sfc, structure, 1);
+    print("[STRUCT START]: %s\n", note);
+    raw_debug_structure(structure, 1);
     print("[STRUCT END]\n");
 #endif /* CONFIG_DEBUG */
 }
@@ -352,8 +350,6 @@ static struct structure *compose_structure(struct scan_file_control *sfc,
     // see compose_object()
     list_add_tail(&s->node, &sfc->fi->struct_head);
 
-    pr_debug("creating the structure...\n");
-
     // get the token to create the structure
     // init all the member as unused state
 again:
@@ -367,10 +363,7 @@ again:
             if (mem->object.type == sym_struct) {
                 struct structure *tmp = search_structure(sfc, &mem->object);
                 BUG_ON(!tmp, "not found the structure");
-                debug_structure(sfc, tmp);
-                pr_debug("copying the structure\n");
                 copy_structure(&mem->struct_info, tmp);
-                debug_structure(sfc, &mem->struct_info);
             }
             /*
              * copy_structure() will clean the mem->object.id,
@@ -396,8 +389,6 @@ again:
     if (WARN_ON(sym != sym_right_brace && sym != sym_id,
                 "unexpect close structure"))
         syntax_error(sfc);
-
-    pr_debug("the end of creating the structure\n");
 
     return s;
 }
@@ -430,6 +421,7 @@ static void drop_struct_member(struct scan_file_control *sfc,
     }
 
     bad(sfc, "undefined structure member");
+    debug_structure(s, "drop struct member");
 }
 
 /* function scope related functions */
@@ -479,7 +471,8 @@ static int decode_func_call(struct scan_file_control *sfc,
                 debug_token(sfc, sym, symbol);
                 if (sym == sym_dot || sym == sym_ptr_assign) {
                     struct object tmp_obj;
-                    sym = compose_object(sfc, &tmp_obj, sym, symbol);
+                    sym = get_object(sfc, &tmp_obj);
+                    debug_object(&tmp_obj, "struct member");
                     if (sym == sym_id)
                         drop_struct_member(sfc, &var->struct_info, &tmp_obj);
                 } else
@@ -589,23 +582,34 @@ static int decode_stmt(struct scan_file_control *sfc, struct symbol *symbol,
             struct variable *tmp_var = NULL;
             struct symbol *orig_symbol = symbol;
 
-            if (sym == sym_struct) {
-#ifdef CONFIG_DEBUG
-                struct structure *tmp = search_structure(sfc, &tmp_obj);
-                debug_structure(sfc, tmp);
-#endif
-                continue;
-            }
-
             /* variable declaration */
             if (range_in_sym(storage_class, tmp_obj.storage_class) ||
                 range_in_sym(type, tmp_obj.type)) {
                 struct variable *var = var_alloc();
-                copy_object(&var->object, &tmp_obj);
-                list_add_tail(&var->func_scope_node,
-                              &sfc->function->func_scope_var_head);
-                tmp_var = var;
-                debug_object(&var->object, "declare var in scope");
+
+                if (tmp_obj.type == sym_struct) {
+                    struct structure *tmp_s = search_structure(sfc, &tmp_obj);
+                    copy_structure(&var->struct_info, tmp_s);
+                    /*
+                     * copy_structure only copy the struct info,
+                     * we should use copy_object to copy the var info (ie, id).
+                     */
+                    if (tmp_obj.id) {
+                        copy_object(&var->object, &tmp_obj);
+                        debug_structure(&var->struct_info,
+                                        "declare struct var in scope");
+                    } else
+                        debug_structure(&var->struct_info,
+                                        "declare struct type in scope");
+                } else {
+                    copy_object(&var->object, &tmp_obj);
+                    debug_object(&var->object, "declare var in scope");
+                }
+                if (tmp_obj.id) {
+                    list_add_tail(&var->func_scope_node,
+                                  &sfc->function->func_scope_var_head);
+                    tmp_var = var;
+                }
             }
 
             sym = get_token(sfc, &symbol);
@@ -748,7 +752,7 @@ again:
     if (sym == sym_struct) {
         struct structure *tmp = search_structure(sfc, &obj);
         BUG_ON(!tmp, "we should search the structure successfully");
-        debug_structure(sfc, tmp);
+        debug_structure(tmp, "global structure");
     }
 #endif
 

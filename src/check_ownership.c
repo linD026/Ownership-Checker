@@ -88,6 +88,7 @@ static __always_inline int check_ok(struct scan_file_control *sfc,
                                     struct variable *var, struct object *obj,
                                     checker_t checker)
 {
+    dump_object(&var->object, sfc->function, "var");
     if (!cmp_token(obj->id, var->object.id))
         return 0;
     if (var->object.type == sym_struct) {
