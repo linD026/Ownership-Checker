@@ -118,20 +118,22 @@ static __always_inline int check_symbol(struct scan_file_control *sfc,
     //pr_debug("check (%s, %u): %s", sym->name, sym->len, &sfc->buffer[sfc->offset]);
     if (strncmp(&sfc->buffer[sfc->offset], sym->name, sym->len) == 0) {
         sfc->offset += sym->len;
-        return 1;
+        return sym->len;
     }
     return 0;
 }
 
 static int __check_symbol_table(struct scan_file_control *sfc,
-                                struct symbol **id, int table_start)
+                                struct symbol **id, int table_start, int *len)
 {
     int sym = sym_dump;
 
     for (int i = table_start; i < ARRAY_SIZE(sym_table); i++) {
-        if (check_symbol(sfc, &sym_table[i])) {
+        int tmp = check_symbol(sfc, &sym_table[i]);
+        if (tmp) {
             *id = &sym_table[i];
             sym = sym_table[i].flags;
+            *len = tmp;
             goto out;
         }
     }
@@ -140,9 +142,9 @@ out:
 }
 
 static __always_inline int check_symbol_table(struct scan_file_control *sfc,
-                                              struct symbol **id)
+                                              struct symbol **id, int *len)
 {
-    return __check_symbol_table(sfc, id, 0);
+    return __check_symbol_table(sfc, id, 0, len);
 }
 
 //
@@ -241,10 +243,10 @@ static int insert_sym_id(struct scan_file_control *sfc, struct symbol **id)
 {
     struct symbol_id_struct *symbol_id = NULL;
     unsigned int orig_offset = sfc->offset;
+    int len = 0;
 
     while (!line_end(sfc)) {
-        if (__check_symbol_table(sfc, id, sym_id_start) != sym_dump ||
-            sym_one_char(sfc) != sym_dump) {
+        if (__check_symbol_table(sfc, id, sym_id_start, &len) != sym_dump) {
             /*
              * Following show the offsets value,
              * so the len of id is sfc->offset - offset + 1:
@@ -256,6 +258,9 @@ static int insert_sym_id(struct scan_file_control *sfc, struct symbol **id)
              *  - K is the keyword, "(", "{", etc.
              *  - D, dump char, after K.
              */
+            sfc->offset -= len;
+            goto get_id;
+        } else if (sym_one_char(sfc) != sym_dump) {
             sfc->offset--;
             goto get_id;
         }
@@ -298,12 +303,13 @@ out:
 static int __get_token(struct scan_file_control *sfc, struct symbol **id)
 {
     int sym = sym_dump;
+    int len = 0;
 
     if (skip_comments(sfc))
         return -EAGAIN;
 
     /* check the keyword */
-    sym = check_symbol_table(sfc, id);
+    sym = check_symbol_table(sfc, id, &len);
     if (sym != sym_dump)
         goto out;
 

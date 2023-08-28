@@ -95,8 +95,11 @@ static __always_inline int check_ok(struct scan_file_control *sfc,
             struct variable *tmp =
                 container_of(curr, struct variable, struct_node);
 
-            if (checker(sfc, tmp))
+            if (checker(sfc, tmp)) {
+                // TODO: show the struct member
+                print("struct member dropped\n");
                 return -1;
+            }
         }
     }
 

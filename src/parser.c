@@ -307,8 +307,6 @@ static void copy_structure(struct structure *dst, struct structure *src)
             container_of(curr, struct variable, struct_node);
         struct variable *dst_var = var_alloc();
 
-        BUG_ON(!dst_var, "var_alloc");
-        debug_object(&src_mem->object, "copying the object");
         if (src_mem->object.type == sym_struct)
             copy_structure(&dst_var->struct_info, &src_mem->struct_info);
         else
@@ -360,7 +358,6 @@ static struct structure *compose_structure(struct scan_file_control *sfc,
     // init all the member as unused state
 again:
     mem = var_alloc();
-    BUG_ON(!mem, "var_alloc");
     sym = get_object(sfc, &mem->object);
     if (sym != sym_right_brace) {
         WARN_ON(sym != sym_id && sym != sym_struct, "unexpect symbol:%d", sym);
@@ -464,6 +461,7 @@ static int decode_func_call(struct scan_file_control *sfc,
 
     while (sym = get_token(sfc, &symbol), sym != -ENODATA) {
         debug_token(sfc, sym, symbol);
+    again:
         if (sym == sym_comma)
             continue;
         if (sym == sym_right_paren)
@@ -476,6 +474,18 @@ static int decode_func_call(struct scan_file_control *sfc,
                 bad(sfc, "unkown symbol");
                 continue;
             }
+            if (var->object.type == sym_struct) {
+                sym = get_token(sfc, &symbol);
+                debug_token(sfc, sym, symbol);
+                if (sym == sym_dot || sym == sym_ptr_assign) {
+                    struct object tmp_obj;
+                    sym = compose_object(sfc, &tmp_obj, sym, symbol);
+                    if (sym == sym_id)
+                        drop_struct_member(sfc, &var->struct_info, &tmp_obj);
+                } else
+                    goto again;
+            }
+
             /* We only check the mut attribute */
             if (var->object.attr & ATTR_FLAGS_MUT) {
                 debug_object(&var->object, "dropped the var");

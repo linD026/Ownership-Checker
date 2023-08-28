@@ -17,6 +17,10 @@ struct recursive_struct {
     } anon_A;
 };
 
+void pass_struct_member_function(int *ptr)
+{
+}
+
 struct data_struct *function(struct data_struct *obj)
 {
     struct data_struct *data;
@@ -32,7 +36,8 @@ struct data_struct *function(struct data_struct *obj)
     data = obj;
     // data = &scope_data;
 
-    // funcB(data->ptrA);
+    pass_struct_member_function(data+1);
+    pass_struct_member_function(data->ptrA);
 
     return data;
 }
