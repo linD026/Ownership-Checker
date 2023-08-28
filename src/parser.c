@@ -6,6 +6,10 @@
 #include <stdlib.h>
 #include <errno.h>
 
+static struct structure *compose_structure(struct scan_file_control *sfc,
+                                           struct object *obj, int sym,
+                                           struct symbol *symbol);
+
 /*
  * Check function:
  *
@@ -26,6 +30,65 @@
  *         until read right_paren, and check scope
  *      4. check all the token's attr.
  */
+
+static void new_scope(struct scan_file_control *sfc)
+{
+    // cache the toppest scope
+    struct scope *scope = malloc(sizeof(struct scope));
+    BUG_ON(!scope, "malloc");
+
+    list_init(&scope->scope_var_head);
+    list_init(&scope->func_scope_node);
+
+    list_add(&scope->func_scope_node, &sfc->function->func_scope_head);
+    pr_debug("new scope\n");
+}
+
+static struct scope *get_current_scope(struct scan_file_control *sfc)
+{
+    struct list_head *first = NULL;
+    struct scope *scope = NULL;
+
+    if (list_empty(&sfc->function->func_scope_head))
+        return NULL;
+
+    first = sfc->function->func_scope_head.next;
+    scope = container_of(first, struct scope, func_scope_node);
+
+    return scope;
+}
+
+static void insert_var_scope(struct scan_file_control *sfc,
+                             struct variable *var)
+{
+    struct scope *scope = get_current_scope(sfc);
+
+    BUG_ON(!scope, "scope doesn't existed");
+    list_add_tail(&var->scope_node, &scope->scope_var_head);
+}
+
+static int put_current_scope(struct scan_file_control *sfc)
+{
+    struct list_head *node = NULL;
+    struct scope *scope = NULL;
+    struct variable *var = NULL;
+
+    if (list_empty(&sfc->function->func_scope_head))
+        return 1;
+    pr_debug("put scope\n");
+
+    node = sfc->function->func_scope_head.next;
+    scope = container_of(node, struct scope, func_scope_node);
+    for_each_var (scope, var) {
+        if (check_ownership_dropped(sfc, &var->object)) {
+            list_del(node);
+            return -1;
+        }
+    }
+    list_del(node);
+
+    return 0;
+}
 
 static void object_init(struct object *object)
 {
@@ -111,10 +174,6 @@ static void debug_object(struct object *obj, const char *note)
 #endif /* CONFIG_DEBUG */
 }
 
-static struct structure *compose_structure(struct scan_file_control *sfc,
-                                           struct object *obj, int sym,
-                                           struct symbol *symbol);
-
 /*
  * The object type is:
  * - type __attribute__ ptr id
@@ -162,7 +221,6 @@ static int compose_object(struct scan_file_control *sfc, struct object *obj,
 
             if (sym == sym_left_brace) {
                 /* type 1 */
-                // TODO: insert to the scope meta data
                 compose_structure(sfc, obj, sym, symbol);
                 return sym_struct;
             }
@@ -249,7 +307,6 @@ static struct variable *var_alloc(void)
     list_init(&var->struct_info.node);
     list_init(&var->scope_node);
     list_init(&var->struct_node);
-    list_init(&var->func_scope_node);
     list_init(&var->parameter_node);
 
     return var;
@@ -348,7 +405,6 @@ static struct structure *compose_structure(struct scan_file_control *sfc,
     copy_object(&s->object, obj);
     list_init(&s->struct_head);
     // TODO: insert to the scope meta data (or internal struct),
-    // see compose_object()
     list_add_tail(&s->node, &sfc->fi->struct_head);
 
     // get the token to create the structure
@@ -430,6 +486,8 @@ static void drop_struct_member(struct scan_file_control *sfc,
 static struct variable *search_var_in_function(struct function *func,
                                                struct symbol *symbol)
 {
+    struct scope_iter_data iter;
+
     list_for_each (&func->parameter_var_head) {
         struct variable *param =
             container_of(curr, struct variable, parameter_node);
@@ -437,13 +495,64 @@ static struct variable *search_var_in_function(struct function *func,
             return param;
     }
 
-    list_for_each (&func->func_scope_var_head) {
-        struct variable *var =
-            container_of(curr, struct variable, func_scope_node);
+    for_each_var_in_scopes (func, &iter) {
+        struct variable *var = iter.var;
         if (cmp_token(var->object.id, symbol))
             return var;
     }
     return NULL;
+}
+
+static int decode_variable(struct scan_file_control *sfc, int *ret_sym,
+                           struct symbol **ret_symbol, struct symbol *id,
+                           bool set)
+{
+    struct symbol *symbol = *ret_symbol;
+    int sym = *ret_sym;
+    int ret = 0;
+    struct variable *var = search_var_in_function(sfc->function, id);
+
+    if (unlikely(!var)) {
+        bad(sfc, "unkown symbol");
+        ret = -EINVAL;
+        goto out;
+    }
+
+    if (var->object.type == sym_struct) {
+        sym = get_token(sfc, &symbol);
+        debug_token(sfc, sym, symbol);
+        if (sym == sym_dot || sym == sym_ptr_assign) {
+            struct object tmp_obj;
+            sym = get_object(sfc, &tmp_obj);
+            if (sym == sym_id) {
+                if (set) {
+                    debug_object(&tmp_obj, "set struct member");
+                    set_struct_member(sfc, &var->struct_info, &tmp_obj);
+                } else {
+                    debug_object(&tmp_obj, "drop struct member");
+                    drop_struct_member(sfc, &var->struct_info, &tmp_obj);
+                }
+            }
+        } else {
+            ret = -EAGAIN;
+            goto out;
+        }
+    } else if (var->object.attr & ATTR_FLAGS_MUT) {
+        /* We only check the mut attribute */
+        if (set) {
+            debug_object(&var->object, "set the var");
+            set_variable(sfc, var);
+        } else {
+            debug_object(&var->object, "drop the var");
+            drop_variable(sfc, var);
+        }
+    }
+
+out:
+    *ret_sym = sym;
+    *ret_symbol = symbol;
+
+    return ret;
 }
 
 static int decode_func_call(struct scan_file_control *sfc,
@@ -461,30 +570,8 @@ static int decode_func_call(struct scan_file_control *sfc,
             return sym;
 
         if (sym == sym_id) {
-            struct variable *var =
-                search_var_in_function(sfc->function, symbol);
-            if (unlikely(!var)) {
-                bad(sfc, "unkown symbol");
-                continue;
-            }
-            if (var->object.type == sym_struct) {
-                sym = get_token(sfc, &symbol);
-                debug_token(sfc, sym, symbol);
-                if (sym == sym_dot || sym == sym_ptr_assign) {
-                    struct object tmp_obj;
-                    sym = get_object(sfc, &tmp_obj);
-                    debug_object(&tmp_obj, "struct member");
-                    if (sym == sym_id)
-                        drop_struct_member(sfc, &var->struct_info, &tmp_obj);
-                } else
-                    goto again;
-            }
-
-            /* We only check the mut attribute */
-            if (var->object.attr & ATTR_FLAGS_MUT) {
-                debug_object(&var->object, "dropped the var");
-                drop_variable(sfc, var);
-            }
+            if (decode_variable(sfc, &sym, &symbol, symbol, false) == -EAGAIN)
+                goto again;
         }
     }
 
@@ -576,11 +663,11 @@ static int decode_stmt(struct scan_file_control *sfc, struct symbol *symbol,
 {
     do {
         struct object tmp_obj;
+    again:
 
         debug_token(sfc, sym, symbol);
         sym = compose_object(sfc, &tmp_obj, sym, symbol);
         if (sym == sym_id || sym == sym_struct) {
-            struct variable *tmp_var = NULL;
             struct symbol *orig_symbol = symbol;
 
             /* variable declaration */
@@ -606,20 +693,18 @@ static int decode_stmt(struct scan_file_control *sfc, struct symbol *symbol,
                     copy_object(&var->object, &tmp_obj);
                     debug_object(&var->object, "declare var in scope");
                 }
-                if (tmp_obj.id) {
-                    list_add_tail(&var->func_scope_node,
-                                  &sfc->function->func_scope_var_head);
-                    tmp_var = var;
-                }
+                if (tmp_obj.id)
+                    insert_var_scope(sfc, var);
             }
 
             sym = get_token(sfc, &symbol);
             if (sym == sym_eq) {
                 /* assignment */
-                if (tmp_var && tmp_var->object.is_ptr)
-                    set_variable(sfc, tmp_var);
                 debug_token(sfc, sym, symbol);
                 debug_object(&tmp_obj, "be wrote");
+                if (decode_variable(sfc, &sym, &symbol, tmp_obj.id, true) ==
+                    -EAGAIN)
+                    goto again;
                 check_ownership_writable(sfc, &tmp_obj);
                 sym = decode_expr(sfc, symbol, sym);
             } else if (sym == sym_left_paren) {
@@ -649,10 +734,15 @@ static int decode_function_scope(struct scan_file_control *sfc)
 
     while (sym = get_token(sfc, &symbol), sym != -ENODATA) {
         if (sym == sym_right_brace) {
+            /*
+             * We already decoded the sym_left_brace in decode_file_scope(),
+             * so we just put the current scope and return back to upper stack
+             * (decode_file_scope() or decode_function_scope()).
+             */
+            put_current_scope(sfc);
             return sym;
         } else if (sym == sym_left_brace) {
-            // TODO: we should create @scope and maintain all the object's
-            // lifetime by it.
+            new_scope(sfc);
             /*
              * The recursive function call should be after sym_right_brace,
              * Otherwise, we cannot get the brace pairs correctly.
@@ -693,7 +783,6 @@ static struct function *insert_function(struct file_info *fi,
     func = malloc(sizeof(struct function));
     BUG_ON(!func, "malloc");
 
-    list_init(&func->func_scope_var_head);
     list_init(&func->func_scope_head);
     copy_object(&func->object, obj);
     list_init(&func->parameter_var_head);
@@ -802,6 +891,7 @@ again:
         } else if (sym == sym_left_brace) {
             /* function definition */
             debug_function(sfc, sfc->function);
+            new_scope(sfc);
             sym = decode_function_scope(sfc);
             WARN_ON(sym != sym_right_brace, "decode_function_scope:%c",
                     debug_sym_one_char(sym));

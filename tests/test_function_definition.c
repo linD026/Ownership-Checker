@@ -9,6 +9,7 @@ int func(int a, int __mut b, int __brw *c, int __brw *d)
     *d = 4;
 
     {
+        int __mut *scoped_ptr = &a;
         a = 1;
     }
 

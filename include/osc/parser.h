@@ -89,10 +89,7 @@ struct variable {
     // TODO: Simplify the init function
     union {
         /* Default (scope) variable */
-        struct {
-            struct list_head scope_node;
-            struct list_head func_scope_node;
-        };
+        struct list_head scope_node;
 
         /* struct member */
         struct list_head struct_node;
@@ -103,12 +100,11 @@ struct variable {
 };
 
 struct scope {
-    struct list_head node;
+    struct list_head func_scope_node;
     struct list_head scope_var_head;
 };
 
 struct function {
-    struct list_head func_scope_var_head;
     /* If it is function declaration the func_scope_head is empty. */
     struct list_head func_scope_head;
 
@@ -139,6 +135,20 @@ struct scan_file_control {
 
     struct function *function;
 };
+
+struct scope_iter_data {
+    struct scope *scope;
+    struct variable *var;
+};
+
+#define for_each_var_in_scopes(func, iter)                               \
+    list_for_each_entry((iter)->scope, &func->func_scope_head,           \
+                        func_scope_node)                                 \
+        list_for_each_entry((iter)->var, &(iter)->scope->scope_var_head, \
+                            scope_node)
+
+#define for_each_var(scope, var) \
+    list_for_each_entry(var, &scope->scope_var_head, scope_node)
 
 int parser(struct file_info *fi);
 
@@ -224,10 +234,14 @@ static __always_inline void bad(struct scan_file_control *sfc,
 
 #define syntax_error(sfc) bad(sfc, "syntax error")
 
-#define bad_on_dropped_info(sfc, dropped_info)                                 \
-    bad_template(1, sfc->fi->name, (dropped_info)->line,                       \
-                 (dropped_info)->buffer, (dropped_info)->offset, "Dropped at", \
-                 NULL)
+#define bad_on_ptr_info(sfc, info, note)                         \
+    bad_template(1, sfc->fi->name, (info)->line, (info)->buffer, \
+                 (info)->offset, note, NULL)
+
+#define bad_on_dropped_info(sfc, dropped_info) \
+    bad_on_ptr_info(sfc, dropped_info, "Dropped at")
+
+#define bad_on_set_info(sfc, set_info) bad_on_ptr_info(sfc, set_info, "Set at")
 
 #define for_each_line(sfc)                   \
     while ((sfc)->offset = 0, (sfc)->line++, \

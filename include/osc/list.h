@@ -59,11 +59,23 @@ static inline void list_del(struct list_head *node)
 #define list_for_each(head)                                     \
     for (struct list_head *curr = (head)->next; curr != (head); \
          curr = curr->next)
-
 #define list_for_each_from(pos, head) for (; pos != (head); pos = pos->next)
 
 #define list_for_each_safe(head)                                   \
     for (struct list_head *curr = (head)->next, *__n = curr->next; \
          curr != (head); curr = __n, __n = curr->next)
+
+#ifndef container_of
+#define container_of(ptr, type, member)                        \
+    __extension__({                                            \
+        const __typeof__(((type *)0)->member) *__mptr = (ptr); \
+        (type *)((char *)__mptr - offsetof(type, member));     \
+    })
+#endif
+
+#define list_for_each_entry(pos, head, member)                       \
+    for (pos = container_of((head)->next, __typeof__(*pos), member); \
+         &pos->member != (head);                                     \
+         pos = container_of((pos)->member.next, __typeof__(*(pos)), member))
 
 #endif /* __OSC_LIST_H__ */

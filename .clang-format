@@ -100,3 +100,5 @@ ForEachMacros:
   - 'list_for_each_safe'
   - 'for_each_line'
   - 'buffer_for_each'
+  - 'for_each_var_in_scopes'
+  - 'for_each_var'

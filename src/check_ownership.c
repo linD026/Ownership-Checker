@@ -82,6 +82,20 @@ static int is_owned(struct scan_file_control *sfc, struct variable *var)
     return 0;
 }
 
+static int is_dropped(struct scan_file_control *sfc, struct variable *var)
+{
+    struct object *obj = &var->object;
+
+    if ((obj->attr & ATTR_FLAGS_MUT) && (var->ptr_info.flags & PTR_INFO_SET) &&
+        !(var->ptr_info.flags & PTR_INFO_DROPPED)) {
+        bad(sfc, "Should release the end-of-life object");
+        bad_on_set_info(sfc, &var->ptr_info.set_info);
+        return -1;
+    }
+
+    return 0;
+}
+
 /* Common helper functions */
 
 static __always_inline int check_ok(struct scan_file_control *sfc,
@@ -110,6 +124,7 @@ static __always_inline int check_ownership(struct scan_file_control *sfc,
                                            struct object *obj,
                                            checker_t checker)
 {
+    struct scope_iter_data iter;
     struct function *func = sfc->function;
 
     list_for_each (&func->parameter_var_head) {
@@ -121,9 +136,8 @@ static __always_inline int check_ownership(struct scan_file_control *sfc,
         }
     }
 
-    list_for_each (&func->func_scope_var_head) {
-        struct variable *var =
-            container_of(curr, struct variable, func_scope_node);
+    for_each_var_in_scopes (func, &iter) {
+        struct variable *var = iter.var;
         if (check_ok(sfc, var, obj, checker)) {
             dump_object(&var->object, func, "scope");
             return -1;
@@ -143,3 +157,4 @@ static __always_inline int check_ownership(struct scan_file_control *sfc,
 
 DEFINE_CHECKER(check_ownership_writable, is_writable)
 DEFINE_CHECKER(check_ownership_owned, is_owned)
+DEFINE_CHECKER(check_ownership_dropped, is_dropped)
