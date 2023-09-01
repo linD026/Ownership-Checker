@@ -46,6 +46,9 @@ endif
 build: clean $(OBJ)
 	$(OSC_CC) $(CFLAGS) $(OBJ) -o $(BIN)
 
+test:
+	bash ./tests/run_tests.sh $(PWD)
+
 clean:
 	$(OSC_RM) -f src/*.o
 	$(OSC_RM) -f $(BIN)
