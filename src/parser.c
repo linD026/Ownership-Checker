@@ -599,6 +599,7 @@ static int decode_func_return(struct scan_file_control *sfc)
                 struct structure __allow_unused *tmp =
                     search_structure(sfc, &tmp_obj);
 
+                // TODO: recheck the logic
                 sym = get_token(sfc, &symbol);
                 debug_token(sfc, sym, symbol);
                 if (sym == sym_dot || sym == sym_ptr_assign) {
@@ -620,29 +621,31 @@ static int decode_func_return(struct scan_file_control *sfc)
 static int decode_expr(struct scan_file_control *sfc, struct symbol *symbol,
                        int sym)
 {
-    struct symbol *prev_symbol = symbol;
-    int prev_sym = sym;
-
     while (sym = get_token(sfc, &symbol), sym != -ENODATA) {
+        struct object tmp_obj;
+
+    again:
         debug_token(sfc, sym, symbol);
-        if (sym == sym_eq) {
-            /* assignment */
-            if (prev_sym == sym_id) {
-                struct object tmp_obj;
-                sym = compose_object(sfc, &tmp_obj, prev_sym, prev_symbol);
-                if (sym == sym_struct) {
-                    struct structure __allow_unused *tmp =
-                        search_structure(sfc, &tmp_obj);
-                    //TODO: check structure member's pointer
-                    pr_debug("check the structure ownership writable\n");
+        sym = compose_object(sfc, &tmp_obj, sym, symbol);
+        if (sym == sym_id) {
+            sym = get_token(sfc, &symbol);
+            debug_token(sfc, sym, symbol);
+            if (sym == sym_eq) {
+                /* assignment */
+                debug_object(&tmp_obj, "be wrote");
+                /* See the comments in decode_stmt()'s assignment part. */
+                if (!tmp_obj.is_ptr) {
+                    if (decode_variable(sfc, &sym, &symbol, tmp_obj.id, true) ==
+                        -EAGAIN)
+                        goto again;
                 }
                 check_ownership_writable(sfc, &tmp_obj);
+                sym = decode_expr(sfc, symbol, sym);
             }
-            sym = decode_expr(sfc, symbol, sym);
-        }
-        if (sym == sym_left_paren) {
-            /* function call */
-            sym = decode_func_call(sfc, prev_symbol);
+            if (sym == sym_left_paren) {
+                /* function call */
+                sym = decode_func_call(sfc, symbol);
+            }
         }
         if (sym == sym_return) {
             if (sfc->function->object.is_ptr) {
@@ -651,8 +654,6 @@ static int decode_expr(struct scan_file_control *sfc, struct symbol *symbol,
         }
         if (sym == sym_seq_point)
             return sym;
-        prev_symbol = symbol;
-        prev_sym = sym;
     }
 
     return sym;
@@ -663,8 +664,8 @@ static int decode_stmt(struct scan_file_control *sfc, struct symbol *symbol,
 {
     do {
         struct object tmp_obj;
-    again:
 
+    again:
         debug_token(sfc, sym, symbol);
         sym = compose_object(sfc, &tmp_obj, sym, symbol);
         if (sym == sym_id || sym == sym_struct) {
@@ -702,9 +703,20 @@ static int decode_stmt(struct scan_file_control *sfc, struct symbol *symbol,
                 /* assignment */
                 debug_token(sfc, sym, symbol);
                 debug_object(&tmp_obj, "be wrote");
-                if (decode_variable(sfc, &sym, &symbol, tmp_obj.id, true) ==
-                    -EAGAIN)
-                    goto again;
+                /*
+                 * Two types:
+                 *
+                 * The object is from var declaration, we should check it
+                 *   - type *id = ... ;
+                 * The object is not from var declaration, and doesn't not
+                 * have ptr type.
+                 *   - ptr_id = ... ;
+                 */
+                if (range_in_sym(type, tmp_obj.type) || !tmp_obj.is_ptr) {
+                    if (decode_variable(sfc, &sym, &symbol, tmp_obj.id, true) ==
+                        -EAGAIN)
+                        goto again;
+                }
                 check_ownership_writable(sfc, &tmp_obj);
                 sym = decode_expr(sfc, symbol, sym);
             } else if (sym == sym_left_paren) {

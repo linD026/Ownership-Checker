@@ -37,15 +37,29 @@ static void dump_object(struct object *obj, struct function *func,
 
 /* checker list */
 
-typedef int (*checker_t)(struct scan_file_control *, struct variable *);
+typedef int (*checker_t)(struct scan_file_control *, struct variable *,
+                         struct object *);
 
-static int is_writable(struct scan_file_control *sfc, struct variable *var)
+static int is_writable(struct scan_file_control *sfc, struct variable *var,
+                       struct object *orig_obj)
 {
     struct object *obj = &var->object;
-
+    /*
+     * For the borrow attribute, we should only check the object
+     * instead of ptr. For example, we should check:
+     * 
+     *      *brw_ptr = ... ;
+     * 
+     * not the following:
+     *
+     *      brw_ptr = ... ;
+     *
+     */
     if ((obj->attr & ATTR_FLAGS_BRW) && !(obj->attr & ATTR_FLAGS_MUT)) {
-        bad(sfc, "Don't write to the borrowed object");
-        return -1;
+        if (orig_obj->is_ptr) {
+            bad(sfc, "Don't write to the borrowed object");
+            return -1;
+        }
     }
     if ((obj->attr & ATTR_FLAGS_MUT) &&
         (var->ptr_info.flags & PTR_INFO_DROPPED)) {
@@ -63,7 +77,8 @@ static int is_writable(struct scan_file_control *sfc, struct variable *var)
     return 0;
 }
 
-static int is_owned(struct scan_file_control *sfc, struct variable *var)
+static int is_owned(struct scan_file_control *sfc, struct variable *var,
+                    struct object *unused)
 {
     struct object *obj = &var->object;
 
@@ -82,7 +97,8 @@ static int is_owned(struct scan_file_control *sfc, struct variable *var)
     return 0;
 }
 
-static int is_dropped(struct scan_file_control *sfc, struct variable *var)
+static int is_dropped(struct scan_file_control *sfc, struct variable *var,
+                      struct object *unused)
 {
     struct object *obj = &var->object;
 
@@ -109,7 +125,7 @@ static __always_inline int check_ok(struct scan_file_control *sfc,
             struct variable *tmp =
                 container_of(curr, struct variable, struct_node);
 
-            if (checker(sfc, tmp)) {
+            if (checker(sfc, tmp, obj)) {
                 // TODO: show the struct member
                 print("struct member dropped\n");
                 return -1;
@@ -117,7 +133,7 @@ static __always_inline int check_ok(struct scan_file_control *sfc,
         }
     }
 
-    return checker(sfc, var);
+    return checker(sfc, var, obj);
 }
 
 static __always_inline int check_ownership(struct scan_file_control *sfc,
