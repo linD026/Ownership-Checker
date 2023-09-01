@@ -12,7 +12,6 @@ make clean          # Delete generated files
 
 ```
 $ make
-$ ./osc tests/test_write.c 
 OSC Analyzes file: tests/test_write.c
 OSC ERROR: Return the dropped object
     |-> tests/test_write.c:4:13
@@ -21,20 +20,28 @@ OSC ERROR: Return the dropped object
     +-> Dropped at tests/test_write.c:3:18
     |        function2(a, b, c);
     |                     ^
-OSC NOTE: The object is declared as function2's argument: int __mut *b
+OSC NOTE: The object is declared as function2 argument: int __mut *b
 OSC ERROR: Don't write to the borrowed object
-    |-> tests/test_write.c:11:14
-    |        a = borrow = 3;
-    |                 ^
-OSC NOTE: The object is declared as function's argument: int __brw *borrow
+    |-> tests/test_write.c:11:15
+    |        a = *borrow = 3;
+    |                  ^
+OSC NOTE: The object is declared as function argument: int __brw *borrow
+OSC ERROR: Should release the end-of-life object
+    |-> tests/test_write.c:17:6
+    |        }
+    |         ^
+    +-> Set at tests/test_write.c:16:29
+    |            int __mut *scoped_ptr = &a;
+    |                                ^
+OSC NOTE: The object is declared as function scope: int __mut *scoped_ptr
 OSC ERROR: Return the dropped object
-    |-> tests/test_write.c:15:18
+    |-> tests/test_write.c:19:18
     |        return mutable;
     |                     ^
     +-> Dropped at tests/test_write.c:13:24
     |        function2(a, mutable, borrow);
     |                           ^
-OSC NOTE: The object is declared as function's argument: int __mut *mutable
+OSC NOTE: The object is declared as function argument: int __mut *mutable
 ```
 
 Now, we only check the ownership of the pointer that has the `__mut` or `__brw` attribute.

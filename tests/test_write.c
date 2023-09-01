@@ -12,5 +12,9 @@ int *function(int __mut *mutable, int __brw *borrow)
 
     function2(a, mutable, borrow);
 
+    {
+        int __mut *scoped_ptr = &a;
+    }
+
     return mutable;
 }
