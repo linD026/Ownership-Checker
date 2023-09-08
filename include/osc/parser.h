@@ -380,6 +380,7 @@ enum {
     sym_return,
     sym_true, /* C23 keyword true, false */
     sym_false,
+    sym_include,
 
     /* sym id start - ptr_assign */
     sym_ptr_assign, // ->

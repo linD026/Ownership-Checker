@@ -44,6 +44,7 @@ static struct symbol sym_table[] = {
     SYM_ENTRY(return),
     SYM_ENTRY(true),
     SYM_ENTRY(false),
+    __SYM_ENTRY(#include, sym_include),
 
     /* sym id start */
     __SYM_ENTRY(->, sym_ptr_assign),

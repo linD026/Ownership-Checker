@@ -181,6 +181,7 @@ static void debug_object(struct object *obj, const char *note)
 static int compose_object(struct scan_file_control *sfc, struct object *obj,
                           int sym, struct symbol *symbol)
 {
+again:
     object_init(obj);
 
     /* variable declaration */
@@ -247,6 +248,13 @@ attr_again:
     }
     if (sym == sym_id)
         obj->id = symbol;
+
+    if (sym == sym_include) {
+        next_line(sfc);
+        sym = get_token(sfc, &symbol);
+        debug_token(sfc, sym, symbol);
+        goto again;
+    }
 
     return sym;
 }
