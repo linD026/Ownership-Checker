@@ -240,8 +240,10 @@ attr_again:
     }
     if (sym == sym_aster) {
         obj->is_ptr = 1;
-        sym = get_token(sfc, &symbol);
-        debug_token(sfc, sym, symbol);
+        do {
+            sym = get_token(sfc, &symbol);
+            debug_token(sfc, sym, symbol);
+        } while (sym == sym_aster);
     }
     if (sym == sym_id)
         obj->id = symbol;
