@@ -190,6 +190,12 @@ again:
         sym = get_token(sfc, &symbol);
         debug_token(sfc, sym, symbol);
     }
+
+    if (range_in_sym(qualifier, sym)) {
+        sym = get_token(sfc, &symbol);
+        debug_token(sfc, sym, symbol);
+    }
+
     if (range_in_sym(type, sym)) {
         obj->type = sym;
         if (sym == sym_struct) {
@@ -232,6 +238,12 @@ again:
         sym = get_token(sfc, &symbol);
         debug_token(sfc, sym, symbol);
     }
+
+    if (range_in_sym(qualifier, sym)) {
+        sym = get_token(sfc, &symbol);
+        debug_token(sfc, sym, symbol);
+    }
+
 attr_again:
     if (range_in_sym(attr, sym)) {
         obj->attr |= get_attr_flag(sym);
@@ -239,6 +251,12 @@ attr_again:
         debug_token(sfc, sym, symbol);
         goto attr_again;
     }
+
+    if (range_in_sym(qualifier, sym)) {
+        sym = get_token(sfc, &symbol);
+        debug_token(sfc, sym, symbol);
+    }
+
     if (sym == sym_aster) {
         obj->is_ptr = 1;
         do {
@@ -246,10 +264,16 @@ attr_again:
             debug_token(sfc, sym, symbol);
         } while (sym == sym_aster);
     }
+
+    if (range_in_sym(qualifier, sym)) {
+        sym = get_token(sfc, &symbol);
+        debug_token(sfc, sym, symbol);
+    }
+
     if (sym == sym_id)
         obj->id = symbol;
 
-    if (sym == sym_include) {
+    if (sym == sym_include || sym == sym_define) {
         next_line(sfc);
         sym = get_token(sfc, &symbol);
         debug_token(sfc, sym, symbol);
@@ -662,12 +686,14 @@ static int decode_expr(struct scan_file_control *sfc, struct symbol *symbol,
                 sym = decode_func_return(sfc);
             }
         }
-        if (sym == sym_seq_point)
+        if (sym == sym_seq_point || sym == sym_right_paren)
             return sym;
     }
 
     return sym;
 }
+
+static int decode_function_scope(struct scan_file_control *sfc);
 
 static int decode_stmt(struct scan_file_control *sfc, struct symbol *symbol,
                        int sym)
@@ -736,6 +762,41 @@ static int decode_stmt(struct scan_file_control *sfc, struct symbol *symbol,
             } else {
                 debug_object(&tmp_obj, "decalaration only");
             }
+        } else if (sym == sym_if) {
+            pr_debug("if statement start\n");
+            sym = get_token(sfc, &symbol);
+            debug_token(sfc, sym, symbol);
+            if (unlikely(sym != sym_left_paren))
+                syntax_error(sfc);
+            sym = decode_expr(sfc, symbol, sym);
+            if (unlikely(sym != sym_right_paren))
+                syntax_error(sfc);
+            sym = get_token(sfc, &symbol);
+            debug_token(sfc, sym, symbol);
+            if (sym == sym_left_brace) {
+                //int id = fork_function_state(sfc);
+                new_scope(sfc);
+                sym = decode_function_scope(sfc);
+            } else {
+                sym = decode_stmt(sfc, symbol, sym);
+            }
+
+            // TODO: Recheck the statement
+            if (sym == sym_else) {
+                //int id = fork_function_state(sfc);
+                sym = get_token(sfc, &symbol);
+                debug_token(sfc, sym, symbol);
+
+                if (sym == sym_left_brace) {
+                    new_scope(sfc);
+                    sym = decode_function_scope(sfc);
+                } else {
+                    sym = decode_stmt(sfc, symbol, sym);
+                }
+            }
+
+            // TODO: join_function_state(sfc, id);
+            pr_debug("if statement end\n");
         } else if (sym == sym_return) {
             if (sfc->function->object.is_ptr) {
                 sym = decode_func_return(sfc);
@@ -746,7 +807,7 @@ static int decode_stmt(struct scan_file_control *sfc, struct symbol *symbol,
             return sym;
     } while (sym = get_token(sfc, &symbol), sym != -ENODATA);
 
-    return 0;
+    return sym;
 }
 
 static int decode_function_scope(struct scan_file_control *sfc)
@@ -772,8 +833,8 @@ static int decode_function_scope(struct scan_file_control *sfc)
             sym = decode_function_scope(sfc);
         } else {
             sym = decode_stmt(sfc, symbol, sym);
-            WARN_ON(sym != sym_seq_point, "decode_stmt:%c",
-                    debug_sym_one_char(sym));
+            WARN_ON(sym != sym_seq_point, "decode_stmt:%c, sym=%d",
+                    debug_sym_one_char(sym), sym);
         }
     }
     return sym;
@@ -915,8 +976,8 @@ again:
             debug_function(sfc, sfc->function);
             new_scope(sfc);
             sym = decode_function_scope(sfc);
-            WARN_ON(sym != sym_right_brace, "decode_function_scope:%c",
-                    debug_sym_one_char(sym));
+            WARN_ON(sym != sym_right_brace, "decode_function_scope:%c, sym=%d",
+                    debug_sym_one_char(sym), sym);
         } else {
             WARN_ON(1, "syntax error");
             syntax_error(sfc);

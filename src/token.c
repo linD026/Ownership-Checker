@@ -15,6 +15,12 @@ static struct symbol sym_table[] = {
     SYM_ENTRY(static),
     SYM_ENTRY(extern),
 
+    /* qualifier type */
+    SYM_ENTRY(const),
+    SYM_ENTRY(volatile),
+    SYM_ENTRY(restrict),
+    SYM_ENTRY(_Atomic),
+
     /* type */
     SYM_ENTRY(int),
     SYM_ENTRY(short),
@@ -44,7 +50,10 @@ static struct symbol sym_table[] = {
     SYM_ENTRY(return),
     SYM_ENTRY(true),
     SYM_ENTRY(false),
+
+    /* preprocessor */
     __SYM_ENTRY(#include, sym_include),
+    __SYM_ENTRY(#define, sym_define),
 
     /* sym id start */
     __SYM_ENTRY(->, sym_ptr_assign),
@@ -92,6 +101,15 @@ static int sym_one_char(struct scan_file_control *sfc)
         break;
     case '-':
         sym = sym_minus;
+        break;
+    case '"':
+        sym = sym_quotation;
+        break;
+    case '&':
+        sym = sym_bit_and;
+        break;
+    case '|':
+        sym = sym_bit_or;
         break;
     case ',':
         sym = sym_comma;
@@ -301,6 +319,29 @@ out:
     return sym_id;
 }
 
+static int get_string_literals(struct scan_file_control *sfc,
+                               struct symbol **id)
+{
+    pr_debug("string literals start\n");
+again:
+    buffer_for_each (sfc) {
+        if (ch == '"') {
+#ifdef CONFIG_DEBUG
+            print("\n");
+#endif
+            pr_debug("string literals end\n");
+            sfc->offset++;
+            return sym_string_literals;
+        }
+#ifdef CONFIG_DEBUG
+        print("%c", ch);
+#endif
+    }
+    if (next_line(sfc))
+        goto again;
+    return -EAGAIN;
+}
+
 static int __get_token(struct scan_file_control *sfc, struct symbol **id)
 {
     int sym = sym_dump;
@@ -316,10 +357,15 @@ static int __get_token(struct scan_file_control *sfc, struct symbol **id)
 
     /* check one word, should check after the table */
     sym = sym_one_char(sfc);
-    if (sym != sym_dump)
+    if (sym != sym_dump && sym != sym_quotation)
         goto out;
 
     /* TODO: check num. */
+    if (sym == sym_quotation) {
+        sym = get_string_literals(sfc, id);
+        if (sym != sym_dump)
+            goto out;
+    }
 
     sym = insert_sym_id(sfc, id);
     if (sym == sym_dump)

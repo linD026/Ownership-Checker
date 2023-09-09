@@ -112,6 +112,9 @@ struct function {
     struct object object;
     struct list_head parameter_var_head;
 
+    int nr_state;
+    struct list_head state_head;
+
     /* For struct file_info */
     struct list_head node;
 };
@@ -139,6 +142,12 @@ struct scan_file_control {
 struct scope_iter_data {
     struct scope *scope;
     struct variable *var;
+};
+
+struct function_state {
+    int id;
+    struct function function;
+    struct list_head state_node;
 };
 
 #define for_each_var_in_scopes(func, iter)                               \
@@ -247,11 +256,15 @@ static __always_inline void bad(struct scan_file_control *sfc,
     while ((sfc)->offset = 0, (sfc)->line++, \
            fgets((sfc)->buffer, (sfc)->size, (sfc)->fi->file) != NULL)
 
-#define next_line(sfc)                                                \
-    ({                                                                \
-        (sfc)->offset = 0;                                            \
-        (sfc)->line++;                                                \
-        (fgets((sfc)->buffer, (sfc)->size, (sfc)->fi->file) != NULL); \
+#define next_line(sfc)                                                    \
+    ({                                                                    \
+        int ret =                                                         \
+            (fgets((sfc)->buffer, (sfc)->size, (sfc)->fi->file) != NULL); \
+        if (ret) {                                                        \
+            (sfc)->offset = 0;                                            \
+            (sfc)->line++;                                                \
+        }                                                                 \
+        ret;                                                              \
     })
 
 /*
@@ -335,22 +348,36 @@ static __always_inline void bad(struct scan_file_control *sfc,
 enum {
     sym_dump = -1,
 
-    /* sym_table start */
+/* sym_table start */
 
-    /* attr start - brw */
+/* attr start - brw */
+#define sym_attr_start sym_attr_brw
     sym_attr_brw,
     sym_attr_mut,
     sym_attr_clone,
-    /* attr end - clone */
+#define sym_attr_end sym_attr_clone
+/* attr end - clone */
 
-    /* sym storage class start - auto */
+/* sym storage class start - auto */
+#define sym_storage_class_start sym_auto
     sym_auto,
     sym_register,
     sym_static,
     sym_extern,
-    /* sym storage class end - extern */
+#define sym_storage_class_end sym_extern
+/* sym storage class end - extern */
 
-    /* sym type start - int */
+/* sym qualifier class start - const */
+#define sym_qualifier_start sym_const
+    sym_const,
+    sym_volatile,
+    sym_restrict,
+    sym__Atomic,
+#define sym_qualifier_end sym__Atomic
+/* sym qualifier class end - _Atomic */
+
+/* sym type start - int */
+#define sym_type_start sym_int
     sym_int,
     sym_short,
     sym_long,
@@ -367,6 +394,7 @@ enum {
     sym_float,
     sym_struct,
     sym_void,
+#define sym_type_end sym_void
     /* sym type end - void */
 
     /* other multiple char keywords */
@@ -380,17 +408,23 @@ enum {
     sym_return,
     sym_true, /* C23 keyword true, false */
     sym_false,
-    sym_include,
 
-    /* sym id start - ptr_assign */
+    /* preprocessor keywords */
+    sym_include,
+    sym_define,
+
+/* Decode the id until the symbol is between sym_id_start to sym_id_end. */
+/* sym id start - ptr_assign */
+#define sym_id_start sym_ptr_assign
     sym_ptr_assign, // ->
     sym_logic_or, // ||
     sym_logic_and, // &&
     sym_equal, // ==
 
-    /* sym_table end */
+/* sym_table end */
 
-    /* sym one char start - left_paren */
+/* sym one char start - left_paren */
+#define sym_one_char_start sym_left_paren
     sym_left_paren, // ()
     sym_right_paren,
     sym_left_brace, // {}
@@ -403,34 +437,24 @@ enum {
     sym_eq, // =
     sym_add, // +
     sym_minus, // -
+    sym_quotation, // "
+    sym_bit_and, // &
+    sym_bit_or, // |
     sym_comma, // ,
     sym_dot, // .
     sym_seq_point, // ;
-    /* sym one char end - seq point */
+#define sym_one_char_end sym_seq_point
+/* sym one char end - seq point */
+#define sym_id_end sym_seq_point
     /* sym id end - seq point */
 
     /* constant */
     sym_numeric_constant,
+    sym_string_literals,
 
     /* id */
     sym_id,
 };
-
-#define sym_attr_start sym_attr_brw
-#define sym_attr_end sym_attr_clone
-
-#define sym_storage_class_start sym_auto
-#define sym_storage_class_end sym_extern
-
-#define sym_type_start sym_int
-#define sym_type_end sym_void
-
-#define sym_one_char_start sym_left_paren
-#define sym_one_char_end sym_seq_point
-
-/* Decode the id until the symbol is between sym_id_start to sym_id_end. */
-#define sym_id_start sym_ptr_assign
-#define sym_id_end sym_seq_point
 
 #define range_in_sym(range_name, number) \
     (sym_##range_name##_start <= number && number <= sym_##range_name##_end)
@@ -440,6 +464,7 @@ int get_token(struct scan_file_control *sfc, struct symbol **id);
 int cmp_token(struct symbol *l, struct symbol *r);
 const char *token_name(int n);
 
+// TODO: We should auto generate these...
 static __always_inline char debug_sym_one_char(int sym)
 {
 #ifdef CONFIG_DEBUG
@@ -470,6 +495,12 @@ static __always_inline char debug_sym_one_char(int sym)
         return '-';
     case sym_comma:
         return ',';
+    case sym_quotation:
+        return '"';
+    case sym_bit_and:
+        return '&';
+    case sym_bit_or:
+        return '|';
     case sym_dot:
         return '.';
     case sym_seq_point:
