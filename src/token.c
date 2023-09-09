@@ -3,6 +3,11 @@
 #include <osc/debug.h>
 #include <osc/parser.h>
 
+#define __SYM_ENTRY(_name, _flags) \
+    [_flags] = { .name = #_name, .len = sizeof(#_name) - 1, .flags = _flags }
+
+#define SYM_ENTRY(_name) __SYM_ENTRY(_name, sym_##_name)
+
 static struct symbol sym_table[] = {
     /* attribute */
     __SYM_ENTRY(__brw, sym_attr_brw),
@@ -128,6 +133,82 @@ static int sym_one_char(struct scan_file_control *sfc)
 failed:
     return sym;
 }
+
+/*
+ * We don't check the terminal symbol '\0', since we should make sure that
+ * each time we iterate the buffer we won't skip any symbol.
+ * But for some times (i.e., debugging), we can add this.
+ * (sfc)->buffer[(sfc)->offset] == '\0' ||\
+ */
+#define line_end(sfc) \
+    ((sfc)->offset >= (sfc)->size || (sfc)->buffer[(sfc)->offset] == '\n')
+
+#define buffer_for_each(sfc)                                     \
+    for (char ch = (sfc)->buffer[(sfc)->offset]; !line_end(sfc); \
+         ch = (sfc)->buffer[++(sfc)->offset])
+
+#define buffer_rest(sfc) ((sfc)->size - (sfc)->offset + 1)
+
+/*
+ * It will get the next non-blank symbols. it's same as following function:
+ *
+ *   static __always_inline int decode_obj_action(
+ *       struct scan_file_control *sfc, struct object_struct *obj,
+ *       int (*action)(struct scan_file_control *, struct object_struct *))
+ *   {
+ *       if (!action)
+ *           return -EINVAL;
+ *   again:
+ *       buffer_for_each (sfc) {
+ *           if (blank(ch))
+ *               continue;
+ *           if (!action(sfc, obj))
+ *               return 0;
+ *       }
+ *       next_line(sfc);
+ *       goto again;
+ *   }
+ *
+ */
+#define ___decode_action(sfc, action, id, ret, ...) \
+    do {                                            \
+        da_##id##_again : buffer_for_each (sfc)     \
+        {                                           \
+            if (blank(ch))                          \
+                continue;                           \
+            ret = action(sfc, ##__VA_ARGS__);       \
+            if (ret != -EAGAIN)                     \
+                goto da_##id##_out;                 \
+        }                                           \
+        if (next_line(sfc))                         \
+            goto da_##id##_again;                   \
+        else                                        \
+            ret = -ENODATA;                         \
+        da_##id##_out:;                             \
+    } while (0)
+
+#define __decode_action(sfc, action, id, ...)                                \
+    ({                                                                       \
+        int __da_ret = 0;                                                    \
+        ___decode_action(sfc, action, id, __da_ret, ##__VA_ARGS__);          \
+        WARN_ON(__da_ret < 0 && __da_ret != -EAGAIN,                         \
+                "action:%s, error:%s, buf:%s", #action, strerror(-__da_ret), \
+                &sfc->buffer[sfc->offset]);                                  \
+        __da_ret;                                                            \
+    })
+
+#define decode_action(sfc, action, ...) \
+    __decode_action(sfc, action, __LINE__, ##__VA_ARGS__)
+
+#define __try_decode_action(sfc, action, id, ...)                   \
+    ({                                                              \
+        int __da_ret = 0;                                           \
+        ___decode_action(sfc, action, id, __da_ret, ##__VA_ARGS__); \
+        __da_ret;                                                   \
+    })
+
+#define try_decode_action(sfc, action, ...) \
+    __try_decode_action(sfc, action, __LINE__, ##__VA_ARGS__)
 
 static __always_inline int check_symbol(struct scan_file_control *sfc,
                                         struct symbol *sym)
