@@ -16,6 +16,7 @@ declare -a test_files=(
     "test_structure.c"
     "test_ptr_init.c"
     "test_write.c"
+    "test_loop.c"
     # "test_macro.c"
 )
 
