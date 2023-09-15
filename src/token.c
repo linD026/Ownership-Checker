@@ -67,7 +67,7 @@ static struct symbol sym_table[] = {
     __SYM_ENTRY(==, sym_equal),
 };
 
-static int sym_one_char(struct scan_file_control *sfc)
+static int __check_sym_one_char(struct scan_file_control *sfc)
 {
     int sym = sym_dump;
     switch (sfc->buffer[sfc->offset]) {
@@ -125,12 +125,16 @@ static int sym_one_char(struct scan_file_control *sfc)
     case ';':
         sym = sym_seq_point;
         break;
-    default:
         //pr_debug("%c\n", sfc->buffer[sfc->offset]);
-        goto failed;
     }
-    sfc->offset++;
-failed:
+    return sym;
+}
+
+static int check_sym_one_char(struct scan_file_control *sfc)
+{
+    int sym = __check_sym_one_char(sfc);
+    if (sym != sym_dump)
+        sfc->offset++;
     return sym;
 }
 
@@ -215,9 +219,16 @@ static __always_inline int check_symbol(struct scan_file_control *sfc,
 {
     if (sym->len > buffer_rest(sfc))
         return 0;
-    //pr_debug("check (%s, %u): %s", sym->name, sym->len, &sfc->buffer[sfc->offset]);
     if (strncmp(&sfc->buffer[sfc->offset], sym->name, sym->len) == 0) {
+        //pr_debug("check (%s, %u): %s", sym->name, sym->len, &sfc->buffer[sfc->offset]);
         sfc->offset += sym->len;
+        if (buffer_rest(sfc)) {
+            if (!blank(sfc->buffer[sfc->offset]) &&
+                __check_sym_one_char(sfc) == sym_dump) {
+                sfc->offset -= sym->len;
+                return 0;
+            }
+        }
         return sym->len;
     }
     return 0;
@@ -360,10 +371,8 @@ static int insert_sym_id(struct scan_file_control *sfc, struct symbol **id)
              */
             sfc->offset -= len;
             goto get_id;
-        } else if (sym_one_char(sfc) != sym_dump) {
-            sfc->offset--;
+        } else if (__check_sym_one_char(sfc) != sym_dump)
             goto get_id;
-        }
         if (blank(sfc->buffer[sfc->offset]))
             goto get_id;
         sfc->offset++;
@@ -437,7 +446,7 @@ static int __get_token(struct scan_file_control *sfc, struct symbol **id)
         goto out;
 
     /* check one word, should check after the table */
-    sym = sym_one_char(sfc);
+    sym = check_sym_one_char(sfc);
     if (sym != sym_dump && sym != sym_quotation)
         goto out;
 
