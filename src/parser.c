@@ -652,6 +652,157 @@ static int decode_func_return(struct scan_file_control *sfc)
     return sym;
 }
 
+static int decode_stmt(struct scan_file_control *sfc, struct symbol *symbol,
+                       int sym);
+static int decode_expr(struct scan_file_control *sfc, struct symbol *symbol,
+                       int sym);
+static int decode_function_scope(struct scan_file_control *sfc);
+
+static int decode_do_while_loop(struct scan_file_control *sfc,
+                                struct symbol *symbol, int sym)
+{
+    pr_debug("do while loop start\n");
+
+    sym = get_token(sfc, &symbol);
+    debug_token(sfc, sym, symbol);
+    if (sym != sym_left_brace)
+        syntax_error(sfc);
+
+    new_scope(sfc);
+    sym = decode_function_scope(sfc);
+    sym = get_token(sfc, &symbol);
+    debug_token(sfc, sym, symbol);
+    BUG_ON(sym != sym_while, "do while loop");
+
+    pr_debug("do while loop end\n");
+
+    return sym;
+}
+
+static int decode_while_loop(struct scan_file_control *sfc,
+                             struct symbol *symbol, int sym)
+{
+    pr_debug("while loop start\n");
+    sym = get_token(sfc, &symbol);
+    debug_token(sfc, sym, symbol);
+    if (sym != sym_left_paren)
+        syntax_error(sfc);
+
+    while (sym = get_token(sfc, &symbol), sym != -ENODATA) {
+        struct object tmp_obj;
+
+    again:
+        debug_token(sfc, sym, symbol);
+        sym = compose_object(sfc, &tmp_obj, sym, symbol);
+        if (sym == sym_id) {
+            sym = get_token(sfc, &symbol);
+            debug_token(sfc, sym, symbol);
+            if (sym == sym_eq) {
+                /* assignment */
+                debug_object(&tmp_obj, "be wrote");
+                /* See the comments in decode_stmt()'s assignment part. */
+                if (!tmp_obj.is_ptr) {
+                    if (decode_variable(sfc, &sym, &symbol, tmp_obj.id, true) ==
+                        -EAGAIN)
+                        goto again;
+                }
+                check_ownership_writable(sfc, &tmp_obj);
+                sym = decode_expr(sfc, symbol, sym);
+            }
+            if (sym == sym_left_paren) {
+                /* function call */
+                sym = decode_func_call(sfc, symbol);
+            }
+        }
+        if (sym == sym_right_paren)
+            break;
+    }
+    if (sym != sym_right_paren)
+        syntax_error(sfc);
+
+    sym = get_token(sfc, &symbol);
+    debug_token(sfc, sym, symbol);
+    if (sym == sym_left_brace) {
+        new_scope(sfc);
+        sym = decode_function_scope(sfc);
+        BUG_ON(sym != sym_right_brace, "while loop");
+    }
+
+    pr_debug("while loop end\n");
+
+    return sym;
+}
+
+static int decode_for_loop(struct scan_file_control *sfc, struct symbol *symbol,
+                           int sym)
+{
+    sym = get_token(sfc, &symbol);
+    debug_token(sfc, sym, symbol);
+
+    pr_debug("for loop start\n");
+    if (sym != sym_left_paren)
+        syntax_error(sfc);
+    new_scope(sfc);
+    sym = get_token(sfc, &symbol);
+    debug_token(sfc, sym, symbol);
+    sym = decode_stmt(sfc, symbol, sym);
+    if (sym != sym_seq_point)
+        syntax_error(sfc);
+    pr_debug("for loop first statement\n");
+    sym = get_token(sfc, &symbol);
+    debug_token(sfc, sym, symbol);
+    sym = decode_expr(sfc, symbol, sym);
+    if (sym != sym_seq_point)
+        syntax_error(sfc);
+    pr_debug("for loop second statement\n");
+    sym = get_token(sfc, &symbol);
+    debug_token(sfc, sym, symbol);
+
+    while (sym = get_token(sfc, &symbol), sym != -ENODATA) {
+        struct object tmp_obj;
+
+    again:
+        debug_token(sfc, sym, symbol);
+        sym = compose_object(sfc, &tmp_obj, sym, symbol);
+        if (sym == sym_id) {
+            sym = get_token(sfc, &symbol);
+            debug_token(sfc, sym, symbol);
+            if (sym == sym_eq) {
+                /* assignment */
+                debug_object(&tmp_obj, "be wrote");
+                /* See the comments in decode_stmt()'s assignment part. */
+                if (!tmp_obj.is_ptr) {
+                    if (decode_variable(sfc, &sym, &symbol, tmp_obj.id, true) ==
+                        -EAGAIN)
+                        goto again;
+                }
+                check_ownership_writable(sfc, &tmp_obj);
+                sym = decode_expr(sfc, symbol, sym);
+            }
+            if (sym == sym_left_paren) {
+                /* function call */
+                sym = decode_func_call(sfc, symbol);
+            }
+        }
+        if (sym == sym_right_paren)
+            break;
+    }
+    if (sym != sym_right_paren)
+        syntax_error(sfc);
+    pr_debug("for loop third statement\n");
+
+    sym = get_token(sfc, &symbol);
+    debug_token(sfc, sym, symbol);
+    if (sym == sym_left_brace) {
+        new_scope(sfc);
+        sym = decode_function_scope(sfc);
+        BUG_ON(sym != sym_right_brace, "for loop");
+    } else
+        sym = decode_expr(sfc, symbol, sym);
+    put_current_scope(sfc);
+    return sym;
+}
+
 static int decode_expr(struct scan_file_control *sfc, struct symbol *symbol,
                        int sym)
 {
@@ -692,8 +843,6 @@ static int decode_expr(struct scan_file_control *sfc, struct symbol *symbol,
 
     return sym;
 }
-
-static int decode_function_scope(struct scan_file_control *sfc);
 
 static int decode_stmt(struct scan_file_control *sfc, struct symbol *symbol,
                        int sym)
@@ -801,6 +950,12 @@ static int decode_stmt(struct scan_file_control *sfc, struct symbol *symbol,
             if (sfc->function->object.is_ptr) {
                 sym = decode_func_return(sfc);
             }
+        } else if (sym == sym_do) {
+            sym = decode_do_while_loop(sfc, symbol, sym);
+        } else if (sym == sym_while) {
+            sym = decode_while_loop(sfc, symbol, sym);
+        } else if (sym == sym_for) {
+            sym = decode_for_loop(sfc, symbol, sym);
         }
 
         if (sym == sym_seq_point)
