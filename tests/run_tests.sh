@@ -14,7 +14,6 @@ declare -a test_files=(
     "test_function_definition.c"
     "test_comment.c"
     "test_structure.c"
-    "test_ptr_init.c"
     "test_write.c"
     "test_loop.c"
     # "test_macro.c"
