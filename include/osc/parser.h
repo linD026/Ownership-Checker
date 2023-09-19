@@ -24,6 +24,7 @@ struct symbol {
 struct object {
     int storage_class;
     int type;
+    // TODO: use the counter
     int is_ptr;
     int attr;
     struct symbol *struct_id;
@@ -206,28 +207,31 @@ static __always_inline int bad_get_last_offset(const char *buffer,
     return -1;
 }
 
-#define bad_template(level, file, line, buffer, offset, note, warning)     \
-    do {                                                                   \
-        int __b_t_last_local = bad_get_last_offset(buffer, offset);        \
-        char __level_symbol = (level) ? '+' : '|';                         \
-        const char *__note = (const char *)note;                           \
-        const char *__warning = (const char *)warning;                     \
-        if (__warning)                                                     \
-            print("\e[1m\e[31mOSC ERROR\e[0m\e[0m: \e[1m%s\e[0m\n",        \
-                  __warning);                                              \
-        if (__note) {                                                      \
-            print("    \e[36m%c->\e[0m %s %s:%lu:%u\n", __level_symbol,    \
-                  __note, file, line, __b_t_last_local + 1);               \
-        } else {                                                           \
-            print("    \e[36m%c->\e[0m %s:%lu:%u\n", __level_symbol, file, \
-                  line, __b_t_last_local + 1);                             \
-        }                                                                  \
-        print("    \e[36m|\e[0m    %s", buffer);                           \
-        print("    \e[36m|\e[0m    ");                                     \
-        for (int __b_i = 0; __b_i < __b_t_last_local; __b_i++)             \
-            print(" ");                                                    \
-        print("\e[31m^\e[0m\n");                                           \
-    } while (0)
+static __always_inline void bad_template(int level, const char *file,
+                                         unsigned int line, const char *buffer,
+                                         unsigned int offset, const char *note,
+                                         const char *warning)
+{
+    int last_local = bad_get_last_offset(buffer, offset);
+    char level_symbol = (level) ? '+' : '|';
+
+    if (warning)
+        print("\e[1m\e[31mOSC ERROR\e[0m\e[0m: \e[1m%s\e[0m\n", warning);
+
+    if (note) {
+        print("    \e[36m%c->\e[0m %s %s:%u:%u\n", level_symbol, note, file,
+              line, last_local + 1);
+    } else {
+        print("    \e[36m%c->\e[0m %s:%u:%u\n", level_symbol, file, line,
+              last_local + 1);
+    }
+
+    print("    \e[36m|\e[0m    %s", buffer);
+    print("    \e[36m|\e[0m    ");
+    for (int i = 0; i < last_local; i++)
+        print(" ");
+    print("\e[31m^\e[0m\n");
+}
 
 static __always_inline void bad(struct scan_file_control *sfc,
                                 const char *warning)
