@@ -6,6 +6,12 @@
 #include <stdlib.h>
 #include <errno.h>
 
+static struct function_state *fork_function_state(struct function *func);
+static void switch_function_state(struct scan_file_control *sfc,
+                                  struct function_state *new);
+static void fork_and_switch_function_state(struct scan_file_control *sfc);
+static void restore_function_state(struct scan_file_control *sfc);
+static void join_function_state(struct scan_file_control *sfc);
 static struct structure *compose_structure(struct scan_file_control *sfc,
                                            struct object *obj, int sym,
                                            struct symbol *symbol);
@@ -296,16 +302,34 @@ static int get_object(struct scan_file_control *sfc, struct object *obj)
     return compose_object(sfc, obj, sym, symbol);
 }
 
-static void record_ptr_info(struct scan_file_control *sfc,
-                            struct ptr_info_internal *info)
+static void __record_ptr_info(struct ptr_info_internal *info,
+                              const char *buffer, unsigned long line,
+                              unsigned int offset)
 {
-    strncpy(info->buffer, sfc->buffer, MAX_BUFFER_LEN);
-    info->line = sfc->line;
+    strncpy(info->buffer, buffer, MAX_BUFFER_LEN);
+    info->line = line;
     /*
      * We adapt the offset to the last symbol when we report the warning.
      * See the bad_get_last_offset();
      */
-    info->offset = sfc->offset;
+    info->offset = offset;
+}
+
+static void record_ptr_info(struct scan_file_control *sfc,
+                            struct ptr_info_internal *info)
+{
+    __record_ptr_info(info, sfc->buffer, sfc->line, sfc->offset);
+}
+
+static void ptr_info_mkset(struct ptr_info *info)
+{
+    info->flags &= ~PTR_INFO_DROPPED;
+    info->flags |= PTR_INFO_SET;
+}
+
+static void ptr_info_mkdropped(struct ptr_info *info)
+{
+    info->flags |= PTR_INFO_DROPPED;
 }
 
 static void drop_variable(struct scan_file_control *sfc, struct variable *var)
@@ -314,7 +338,8 @@ static void drop_variable(struct scan_file_control *sfc, struct variable *var)
     WARN_ON(!(var->ptr_info.flags & (PTR_INFO_SET | PTR_INFO_FUNC_ARG)),
             "drop the unassigned ptr");
     record_ptr_info(sfc, &var->ptr_info.dropped_info);
-    var->ptr_info.flags |= PTR_INFO_DROPPED;
+    ptr_info_mkdropped(&var->ptr_info);
+    debug_ptr_info(&var->ptr_info.dropped_info, NULL);
 }
 
 static void set_variable(struct scan_file_control *sfc, struct variable *var)
@@ -326,8 +351,8 @@ static void set_variable(struct scan_file_control *sfc, struct variable *var)
     }
 #endif
     record_ptr_info(sfc, &var->ptr_info.set_info);
-    var->ptr_info.flags &= ~PTR_INFO_DROPPED;
-    var->ptr_info.flags |= PTR_INFO_SET;
+    ptr_info_mkset(&var->ptr_info);
+    debug_ptr_info(&var->ptr_info.set_info, NULL);
 }
 
 static struct variable *var_alloc(void)
@@ -344,6 +369,23 @@ static struct variable *var_alloc(void)
     list_init(&var->parameter_node);
 
     return var;
+}
+
+static void copy_variable(struct variable *dst, struct variable *src)
+{
+    dst->ptr_info.flags = src->ptr_info.flags;
+    if (dst->ptr_info.flags & PTR_INFO_SET) {
+        __record_ptr_info(
+            &dst->ptr_info.set_info, src->ptr_info.set_info.buffer,
+            src->ptr_info.set_info.line, src->ptr_info.set_info.offset);
+    }
+    if (dst->ptr_info.flags & PTR_INFO_DROPPED) {
+        __record_ptr_info(
+            &dst->ptr_info.set_info, src->ptr_info.dropped_info.buffer,
+            src->ptr_info.dropped_info.line, src->ptr_info.dropped_info.offset);
+    }
+
+    copy_object(&dst->object, &src->object);
 }
 
 #ifdef CONFIG_DEBUG
@@ -522,7 +564,7 @@ static struct variable *search_var_in_function(struct function *func,
 {
     struct scope_iter_data iter;
 
-    list_for_each (&func->parameter_var_head) {
+    list_for_each (&func->parameter_head) {
         struct variable *param =
             container_of(curr, struct variable, parameter_node);
         if (cmp_token(param->object.id, symbol))
@@ -657,6 +699,47 @@ static int decode_stmt(struct scan_file_control *sfc, struct symbol *symbol,
 static int decode_expr(struct scan_file_control *sfc, struct symbol *symbol,
                        int sym);
 static int decode_function_scope(struct scan_file_control *sfc);
+
+static int decode_if(struct scan_file_control *sfc, struct symbol *symbol,
+                     int sym)
+{
+    pr_debug("if statement start\n");
+    sym = get_token(sfc, &symbol);
+    debug_token(sfc, sym, symbol);
+    if (unlikely(sym != sym_left_paren))
+        syntax_error(sfc);
+    sym = decode_expr(sfc, symbol, sym);
+    if (unlikely(sym != sym_right_paren))
+        syntax_error(sfc);
+    sym = get_token(sfc, &symbol);
+    debug_token(sfc, sym, symbol);
+    if (sym == sym_left_brace) {
+        fork_and_switch_function_state(sfc);
+        new_scope(sfc);
+        sym = decode_function_scope(sfc);
+    } else {
+        sym = decode_stmt(sfc, symbol, sym);
+    }
+
+    if (sym == sym_else) {
+        fork_and_switch_function_state(sfc);
+        sym = get_token(sfc, &symbol);
+        debug_token(sfc, sym, symbol);
+
+        if (sym == sym_left_brace) {
+            new_scope(sfc);
+            sym = decode_function_scope(sfc);
+        } else {
+            sym = decode_stmt(sfc, symbol, sym);
+        }
+    }
+
+    restore_function_state(sfc);
+    join_function_state(sfc);
+    pr_debug("if statement end\n");
+
+    return sym;
+}
 
 static int decode_do_while_loop(struct scan_file_control *sfc,
                                 struct symbol *symbol, int sym)
@@ -912,40 +995,7 @@ static int decode_stmt(struct scan_file_control *sfc, struct symbol *symbol,
                 debug_object(&tmp_obj, "decalaration only");
             }
         } else if (sym == sym_if) {
-            pr_debug("if statement start\n");
-            sym = get_token(sfc, &symbol);
-            debug_token(sfc, sym, symbol);
-            if (unlikely(sym != sym_left_paren))
-                syntax_error(sfc);
-            sym = decode_expr(sfc, symbol, sym);
-            if (unlikely(sym != sym_right_paren))
-                syntax_error(sfc);
-            sym = get_token(sfc, &symbol);
-            debug_token(sfc, sym, symbol);
-            if (sym == sym_left_brace) {
-                //int id = fork_function_state(sfc);
-                new_scope(sfc);
-                sym = decode_function_scope(sfc);
-            } else {
-                sym = decode_stmt(sfc, symbol, sym);
-            }
-
-            // TODO: Recheck the statement
-            if (sym == sym_else) {
-                //int id = fork_function_state(sfc);
-                sym = get_token(sfc, &symbol);
-                debug_token(sfc, sym, symbol);
-
-                if (sym == sym_left_brace) {
-                    new_scope(sfc);
-                    sym = decode_function_scope(sfc);
-                } else {
-                    sym = decode_stmt(sfc, symbol, sym);
-                }
-            }
-
-            // TODO: join_function_state(sfc, id);
-            pr_debug("if statement end\n");
+            sym = decode_if(sfc, symbol, sym);
         } else if (sym == sym_return) {
             if (sfc->function->object.is_ptr) {
                 sym = decode_func_return(sfc);
@@ -995,6 +1045,233 @@ static int decode_function_scope(struct scan_file_control *sfc)
     return sym;
 }
 
+static void debug_function(struct function *function)
+{
+#ifdef CONFIG_DEBUG
+    print("[FUNC] ");
+    raw_debug_object(&function->object);
+    print(" (");
+    if (unlikely(list_empty(&function->parameter_head)))
+        print("void");
+    else {
+        list_for_each (&function->parameter_head) {
+            struct variable *param =
+                container_of(curr, struct variable, parameter_node);
+            raw_debug_object(&param->object);
+            if (curr->next != &function->parameter_head)
+                print(", ");
+        }
+    }
+    print(")");
+
+    // TODO: scope object
+    print("\n");
+#endif /* CONFIG_DEBUG */
+}
+
+/*
+ * Before we entry the if scope, we should fork the current function state,
+ * so that the subsequent scope (else if, else) can restore back and run the
+ * previous state.
+ *
+ *      #1=@fork
+ *      if (...) {
+ *          #2
+ *      } else {
+ *          @restore=#1, #3=@fork=#1 (copy the #1)
+ *          #3
+ *      }
+ *
+ *      @join #1, #2, #3
+ */
+static struct function_state *fork_function_state(struct function *func)
+{
+    struct scope *scope = NULL;
+    struct function *dst, *src = func;
+    struct function_state *fs = malloc(sizeof(struct function_state));
+
+    BUG_ON(!fs, "malloc");
+
+    pr_debug("fork scope start\n");
+    debug_function(src);
+
+    fs->id = src->nr_state++;
+    dst = &fs->function;
+    list_init(&dst->func_scope_head);
+    copy_object(&dst->object, &src->object);
+    list_init(&dst->parameter_head);
+    dst->nr_state = -1;
+    list_init(&dst->state_head);
+    list_init(&dst->node);
+
+    list_for_each (&src->parameter_head) {
+        struct variable *param =
+            container_of(curr, struct variable, parameter_node);
+        struct variable *new_var = var_alloc();
+
+        copy_variable(new_var, param);
+        list_add_tail(&new_var->parameter_node, &dst->parameter_head);
+        debug_object(&new_var->object, "fork param");
+    }
+
+    list_for_each_entry (scope, &src->func_scope_head, func_scope_node) {
+        struct variable *var = NULL;
+        struct scope *new_scope = malloc(sizeof(struct scope));
+        BUG_ON(!scope, "malloc");
+
+        list_init(&new_scope->scope_var_head);
+        list_init(&new_scope->func_scope_node);
+
+        pr_debug("fork scope\n");
+
+        for_each_var (scope, var) {
+            struct variable *new_var = var_alloc();
+
+            copy_variable(new_var, var);
+            list_add_tail(&new_var->scope_node, &new_scope->scope_var_head);
+            debug_object(&new_var->object, "fork var");
+        }
+
+        list_add_tail(&new_scope->func_scope_node, &dst->func_scope_head);
+    }
+
+    list_add_tail(&fs->state_node, &src->state_head);
+
+    pr_debug("fork scope end\n");
+
+    return fs;
+}
+
+static void switch_function_state(struct scan_file_control *sfc,
+                                  struct function_state *new)
+{
+    sfc->function = &new->function;
+}
+
+static void fork_and_switch_function_state(struct scan_file_control *sfc)
+{
+    switch_function_state(sfc, fork_function_state(sfc->function));
+}
+
+static void restore_function_state(struct scan_file_control *sfc)
+{
+    sfc->function = sfc->real_function;
+}
+
+static void join_variable(struct variable *real, struct variable *tmp)
+{
+    if (cmp_object(&tmp->object, &real->object)) {
+        if (tmp->ptr_info.flags & PTR_INFO_DROPPED &&
+            real->ptr_info.flags & (PTR_INFO_SET | PTR_INFO_FUNC_ARG)) {
+            pr_debug("drop the variable\n");
+            debug_object(&tmp->object, "dropped var");
+            __record_ptr_info(&real->ptr_info.dropped_info,
+                              tmp->ptr_info.dropped_info.buffer,
+                              tmp->ptr_info.dropped_info.line,
+                              tmp->ptr_info.dropped_info.offset);
+            ptr_info_mkdropped(&real->ptr_info);
+            debug_ptr_info(&real->ptr_info.dropped_info, NULL);
+        }
+        if (tmp->ptr_info.flags & (PTR_INFO_SET | PTR_INFO_FUNC_ARG)) {
+            if (real->ptr_info.flags & (PTR_INFO_SET | PTR_INFO_FUNC_ARG)) {
+                /* Check the real is set again. */
+                if (tmp->ptr_info.set_info.line !=
+                    real->ptr_info.set_info.line) {
+                    __record_ptr_info(&real->ptr_info.set_info,
+                                      tmp->ptr_info.set_info.buffer,
+                                      tmp->ptr_info.set_info.line,
+                                      tmp->ptr_info.set_info.offset);
+                    debug_object(&tmp->object,
+                                 "set the real again (diff line)");
+                    debug_ptr_info(&real->ptr_info.set_info, NULL);
+                } else if (tmp->ptr_info.set_info.offset !=
+                           real->ptr_info.set_info.offset) {
+                    real->ptr_info.set_info.offset =
+                        tmp->ptr_info.set_info.offset;
+                    debug_object(&tmp->object,
+                                 "set the real again (same line, diff offset)");
+                    debug_ptr_info(&real->ptr_info.set_info, NULL);
+                } else {
+                    // TODO: fixme
+                    // TODO: should we store the ptr info as stack?
+                    // we can show the warning like:
+                    // the object might be released at following ...
+                    pr_debug(
+                        "both are set, but the line/offset have problem\n");
+                    debug_ptr_info(&real->ptr_info.set_info, NULL);
+                    debug_ptr_info(&real->ptr_info.set_info, NULL);
+                }
+            } else if (real->ptr_info.flags & PTR_INFO_DROPPED) {
+                __record_ptr_info(
+                    &real->ptr_info.set_info, tmp->ptr_info.set_info.buffer,
+                    tmp->ptr_info.set_info.line, tmp->ptr_info.set_info.offset);
+                ptr_info_mkset(&real->ptr_info);
+                debug_object(&tmp->object, "set the dropped var");
+                debug_ptr_info(&real->ptr_info.set_info, NULL);
+            }
+        }
+    } else {
+        WARN_ON(1, "not the same variable");
+        debug_object(&tmp->object, "tmp");
+        debug_object(&real->object, "real");
+    }
+}
+
+static void join_single_function_state(struct function *func,
+                                       struct function_state *state)
+{
+    struct scope *scope = NULL;
+    struct scope *tmp_scope = NULL;
+    struct variable *tmp_var = NULL;
+
+    debug_function(&state->function);
+
+    tmp_var = list_first_entry(&state->function.parameter_head, struct variable,
+                               parameter_node);
+    list_for_each (&func->parameter_head) {
+        struct variable *param =
+            container_of(curr, struct variable, parameter_node);
+        debug_object(&param->object, "join param");
+        debug_object(&tmp_var->object, "join tmp_var");
+        join_variable(param, tmp_var);
+        tmp_var = list_next_entry(tmp_var, parameter_node);
+    }
+
+    tmp_scope = list_first_entry(&state->function.func_scope_head, struct scope,
+                                 func_scope_node);
+    list_for_each_entry (scope, &func->func_scope_head, func_scope_node) {
+        struct variable *var = NULL;
+
+        tmp_var = list_first_entry(&scope->scope_var_head, struct variable,
+                                   scope_node);
+        for_each_var (scope, var) {
+            debug_object(&var->object, "join var");
+            debug_object(&tmp_var->object, "join tmp_var");
+            join_variable(var, tmp_var);
+            tmp_var = list_next_entry(tmp_var, scope_node);
+        }
+        tmp_scope = list_next_entry(tmp_scope, func_scope_node);
+    }
+}
+
+static void join_function_state(struct scan_file_control *sfc)
+{
+    pr_debug("Join the function state start\n");
+
+    struct function *func = sfc->function;
+    list_for_each_safe (&func->state_head) {
+        struct function_state *tmp =
+            container_of(curr, struct function_state, state_node);
+        BUG_ON(!cmp_object(&tmp->function.object, &func->object),
+               "not the same function");
+        list_del(&tmp->state_node);
+        join_single_function_state(func, tmp);
+        func->nr_state--;
+    }
+
+    pr_debug("Join the function state end\n");
+}
+
 /* file scope related functions */
 
 static struct function *search_function(struct file_info *fi,
@@ -1023,35 +1300,12 @@ static struct function *insert_function(struct file_info *fi,
 
     list_init(&func->func_scope_head);
     copy_object(&func->object, obj);
-    list_init(&func->parameter_var_head);
+    list_init(&func->parameter_head);
+    func->nr_state = 0;
+    list_init(&func->state_head);
     list_add_tail(&func->node, &fi->func_head);
 
     return func;
-}
-
-static void debug_function(struct scan_file_control *sfc,
-                           struct function *function)
-{
-#ifdef CONFIG_DEBUG
-    print("[FUNC] ");
-    raw_debug_object(&function->object);
-    print(" (");
-    if (unlikely(list_empty(&function->parameter_var_head)))
-        print("void");
-    else {
-        list_for_each (&function->parameter_var_head) {
-            struct variable *param =
-                container_of(curr, struct variable, parameter_node);
-            raw_debug_object(&param->object);
-            if (curr->next != &function->parameter_var_head)
-                print(", ");
-        }
-    }
-    print(")");
-
-    // TODO: scope object
-    print("\n");
-#endif /* CONFIG_DEBUG */
 }
 
 static int decode_file_scope(struct scan_file_control *sfc)
@@ -1095,6 +1349,7 @@ again:
 
     /* Function */
     sfc->function = insert_function(sfc->fi, &obj);
+    sfc->real_function = sfc->function;
 
     if (sym == sym_left_paren) {
         /* parse the function paramters */
@@ -1108,7 +1363,7 @@ again:
                 break;
             } else {
                 list_add_tail(&param->parameter_node,
-                              &sfc->function->parameter_var_head);
+                              &sfc->function->parameter_head);
                 param->ptr_info.flags |= PTR_INFO_FUNC_ARG;
             }
             sym = get_token(sfc, &buffer);
@@ -1124,11 +1379,11 @@ again:
         sym = get_token(sfc, &buffer);
         /* function declaration */
         if (sym == sym_seq_point) {
-            debug_function(sfc, sfc->function);
+            debug_function(sfc->function);
             goto out;
         } else if (sym == sym_left_brace) {
             /* function definition */
-            debug_function(sfc, sfc->function);
+            debug_function(sfc->function);
             new_scope(sfc);
             sym = decode_function_scope(sfc);
             WARN_ON(sym != sym_right_brace, "decode_function_scope:%c, sym=%d",
@@ -1166,7 +1421,7 @@ int parser(struct file_info *fi)
     };
 
     fi->file = fopen(fi->name, "r");
-    BUG_ON(!fi->file, "fopen");
+    BUG_ON(!fi->file, "fopen:%s", fi->name);
     rewind(fi->file);
     scan_file(&sfc);
     fclose(fi->file);

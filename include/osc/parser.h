@@ -106,7 +106,7 @@ struct function {
 
     /* function info */
     struct object object;
-    struct list_head parameter_var_head;
+    struct list_head parameter_head;
 
     int nr_state;
     struct list_head state_head;
@@ -133,6 +133,7 @@ struct scan_file_control {
     unsigned long line;
 
     struct function *function;
+    struct function *real_function;
 };
 
 struct scope_iter_data {
@@ -146,14 +147,14 @@ struct function_state {
     struct list_head state_node;
 };
 
-#define for_each_var_in_scopes(func, iter)                               \
-    list_for_each_entry((iter)->scope, &func->func_scope_head,           \
-                        func_scope_node)                                 \
-        list_for_each_entry((iter)->var, &(iter)->scope->scope_var_head, \
-                            scope_node)
+#define for_each_var_in_scopes(func, iter)                                \
+    list_for_each_entry ((iter)->scope, &func->func_scope_head,           \
+                         func_scope_node)                                 \
+        list_for_each_entry ((iter)->var, &(iter)->scope->scope_var_head, \
+                             scope_node)
 
 #define for_each_var(scope, var) \
-    list_for_each_entry(var, &scope->scope_var_head, scope_node)
+    list_for_each_entry (var, &scope->scope_var_head, scope_node)
 
 int parser(struct file_info *fi);
 
@@ -250,6 +251,14 @@ static __always_inline void bad(struct scan_file_control *sfc,
     bad_on_ptr_info(sfc, dropped_info, "Dropped at")
 
 #define bad_on_set_info(sfc, set_info) bad_on_ptr_info(sfc, set_info, "Set at")
+
+#ifdef CONFIG_DEBUG
+#define debug_ptr_info(info, note)                                  \
+    bad_template(0, "debug_ptr_info", (info)->line, (info)->buffer, \
+                 (info)->offset, note, NULL)
+#else
+#define debug_ptr_info(...)
+#endif /* CONFIG_DEBUG */
 
 #define for_each_line(sfc)                   \
     while ((sfc)->offset = 0, (sfc)->line++, \

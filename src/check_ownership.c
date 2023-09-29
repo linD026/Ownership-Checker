@@ -143,7 +143,7 @@ static __always_inline int check_ownership(struct scan_file_control *sfc,
     struct scope_iter_data iter;
     struct function *func = sfc->function;
 
-    list_for_each (&func->parameter_var_head) {
+    list_for_each (&func->parameter_head) {
         struct variable *param =
             container_of(curr, struct variable, parameter_node);
         if (check_ok(sfc, param, obj, checker)) {

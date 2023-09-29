@@ -78,4 +78,10 @@ static inline void list_del(struct list_head *node)
          &pos->member != (head);                                     \
          pos = container_of((pos)->member.next, __typeof__(*(pos)), member))
 
+#define list_first_entry(ptr, type, member) \
+    container_of((ptr)->next, type, member)
+
+#define list_next_entry(pos, member) \
+    container_of((pos)->member.next, __typeof__(*(pos)), member)
+
 #endif /* __OSC_LIST_H__ */
