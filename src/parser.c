@@ -37,7 +37,7 @@ static struct structure *compose_structure(struct scan_file_control *sfc,
  *      4. check all the token's attr.
  */
 
-static void new_scope(struct scan_file_control *sfc)
+static void __new_scope(struct scan_file_control *sfc)
 {
     // cache the toppest scope
     struct scope *scope = malloc(sizeof(struct scope));
@@ -47,8 +47,13 @@ static void new_scope(struct scan_file_control *sfc)
     list_init(&scope->func_scope_node);
 
     list_add(&scope->func_scope_node, &sfc->function->func_scope_head);
-    pr_debug("new scope\n");
 }
+
+#define new_scope(sfc)           \
+    do {                         \
+        __new_scope(sfc);        \
+        pr_debug("new scope\n"); \
+    } while (0)
 
 static struct scope *get_current_scope(struct scan_file_control *sfc)
 {
@@ -73,28 +78,30 @@ static void insert_var_scope(struct scan_file_control *sfc,
     list_add_tail(&var->scope_node, &scope->scope_var_head);
 }
 
-static int put_current_scope(struct scan_file_control *sfc)
+static int __put_current_scope(struct scan_file_control *sfc)
 {
-    struct list_head *node = NULL;
     struct scope *scope = NULL;
     struct variable *var = NULL;
 
-    if (list_empty(&sfc->function->func_scope_head))
+    scope = get_current_scope(sfc);
+    if (!scope)
         return 1;
-    pr_debug("put scope\n");
-
-    node = sfc->function->func_scope_head.next;
-    scope = container_of(node, struct scope, func_scope_node);
     for_each_var (scope, var) {
         if (check_ownership_dropped(sfc, &var->object)) {
-            list_del(node);
+            list_del(&scope->func_scope_node);
             return -1;
         }
     }
-    list_del(node);
+    list_del(&scope->func_scope_node);
 
     return 0;
 }
+
+#define put_current_scope(sfc)    \
+    do {                          \
+        pr_debug("put scope\n");  \
+        __put_current_scope(sfc); \
+    } while (0)
 
 static void object_init(struct object *object)
 {
@@ -699,6 +706,8 @@ static int decode_stmt(struct scan_file_control *sfc, struct symbol *symbol,
 static int decode_expr(struct scan_file_control *sfc, struct symbol *symbol,
                        int sym);
 static int decode_function_scope(struct scan_file_control *sfc);
+static int decode_new_block(struct scan_file_control *sfc, int sym,
+                            struct symbol *symbol);
 
 static int decode_if(struct scan_file_control *sfc, struct symbol *symbol,
                      int sym)
@@ -716,7 +725,7 @@ static int decode_if(struct scan_file_control *sfc, struct symbol *symbol,
     if (sym == sym_left_brace) {
         fork_and_switch_function_state(sfc);
         new_scope(sfc);
-        sym = decode_function_scope(sfc);
+        sym = decode_new_block(sfc, sym, symbol);
     } else {
         sym = decode_stmt(sfc, symbol, sym);
     }
@@ -728,7 +737,7 @@ static int decode_if(struct scan_file_control *sfc, struct symbol *symbol,
 
         if (sym == sym_left_brace) {
             new_scope(sfc);
-            sym = decode_function_scope(sfc);
+            sym = decode_new_block(sfc, sym, symbol);
         } else {
             sym = decode_stmt(sfc, symbol, sym);
         }
@@ -736,7 +745,7 @@ static int decode_if(struct scan_file_control *sfc, struct symbol *symbol,
 
     restore_function_state(sfc);
     join_function_state(sfc);
-    pr_debug("if statement end\n");
+    pr_debug("if statement end(sym=%d)\n", sym);
 
     return sym;
 }
@@ -752,11 +761,12 @@ static int decode_do_while_loop(struct scan_file_control *sfc,
         syntax_error(sfc);
 
     new_scope(sfc);
-    sym = decode_function_scope(sfc);
+    sym = decode_new_block(sfc, sym, symbol);
     sym = get_token(sfc, &symbol);
     debug_token(sfc, sym, symbol);
     BUG_ON(sym != sym_while, "do while loop");
 
+    // TODO: handle the do-while expr
     pr_debug("do while loop end\n");
 
     return sym;
@@ -771,6 +781,7 @@ static int decode_while_loop(struct scan_file_control *sfc,
     if (sym != sym_left_paren)
         syntax_error(sfc);
 
+    // TODO: Should we check the lifetime?
     while (sym = get_token(sfc, &symbol), sym != -ENODATA) {
         struct object tmp_obj;
 
@@ -807,7 +818,7 @@ static int decode_while_loop(struct scan_file_control *sfc,
     debug_token(sfc, sym, symbol);
     if (sym == sym_left_brace) {
         new_scope(sfc);
-        sym = decode_function_scope(sfc);
+        sym = decode_new_block(sfc, sym, symbol);
         BUG_ON(sym != sym_right_brace, "while loop");
     }
 
@@ -878,11 +889,12 @@ static int decode_for_loop(struct scan_file_control *sfc, struct symbol *symbol,
     debug_token(sfc, sym, symbol);
     if (sym == sym_left_brace) {
         new_scope(sfc);
-        sym = decode_function_scope(sfc);
+        sym = decode_new_block(sfc, sym, symbol);
         BUG_ON(sym != sym_right_brace, "for loop");
     } else
         sym = decode_expr(sfc, symbol, sym);
     put_current_scope(sfc);
+
     return sym;
 }
 
@@ -996,6 +1008,7 @@ static int decode_stmt(struct scan_file_control *sfc, struct symbol *symbol,
             }
         } else if (sym == sym_if) {
             sym = decode_if(sfc, symbol, sym);
+            continue;
         } else if (sym == sym_return) {
             if (sfc->function->object.is_ptr) {
                 sym = decode_func_return(sfc);
@@ -1004,24 +1017,39 @@ static int decode_stmt(struct scan_file_control *sfc, struct symbol *symbol,
             sym = decode_do_while_loop(sfc, symbol, sym);
         } else if (sym == sym_while) {
             sym = decode_while_loop(sfc, symbol, sym);
+            continue;
         } else if (sym == sym_for) {
             sym = decode_for_loop(sfc, symbol, sym);
+            continue;
         }
 
-        if (sym == sym_seq_point)
+        if (sym == sym_left_brace) {
+            new_scope(sfc);
+            sym = decode_new_block(sfc, sym, symbol);
+            continue;
+        }
+
+        /*
+         * The if, while-loop, for-loop statements have their own scope
+         * (i.e., the brace pair) and their right brace might be the last
+         * of the token in the function. In this case, we don't peak
+         * the next token in those decoders instead we return back here
+         * and skip the following checking.
+         */
+        if (sym == sym_seq_point || sym == sym_right_brace)
             return sym;
     } while (sym = get_token(sfc, &symbol), sym != -ENODATA);
 
     return sym;
 }
 
-static int decode_function_scope(struct scan_file_control *sfc)
+static int decode_new_block(struct scan_file_control *sfc, int sym,
+                            struct symbol *symbol)
 {
-    struct symbol *symbol = NULL;
-    int sym = sym_dump;
-
     while (sym = get_token(sfc, &symbol), sym != -ENODATA) {
+        debug_token(sfc, sym, symbol);
         if (sym == sym_right_brace) {
+        exit:
             /*
              * We already decoded the sym_left_brace in decode_file_scope(),
              * so we just put the current scope and return back to upper stack
@@ -1035,14 +1063,24 @@ static int decode_function_scope(struct scan_file_control *sfc)
              * The recursive function call should be after sym_right_brace,
              * Otherwise, we cannot get the brace pairs correctly.
              */
-            sym = decode_function_scope(sfc);
+            sym = decode_new_block(sfc, sym, symbol);
         } else {
             sym = decode_stmt(sfc, symbol, sym);
+            if (sym == sym_right_brace)
+                goto exit;
             WARN_ON(sym != sym_seq_point, "decode_stmt:%c, sym=%d",
                     debug_sym_one_char(sym), sym);
         }
-    }
+    };
+
     return sym;
+}
+
+static int decode_function_scope(struct scan_file_control *sfc)
+{
+    struct symbol *symbol = NULL;
+    int sym = sym_dump;
+    return decode_new_block(sfc, sym, symbol);
 }
 
 static void debug_function(struct function *function)
