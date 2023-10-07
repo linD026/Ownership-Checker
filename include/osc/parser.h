@@ -9,6 +9,7 @@
 
 #define MAX_BUFFER_LEN 128
 #define MAX_NR_NAME 80
+#define MAX_NR_GENERATED_NAME (MAX_NR_NAME + 10)
 
 struct symbol {
     char *name;
@@ -116,6 +117,11 @@ struct function {
 };
 
 struct file_info {
+    /* e.g., generated_test_name.c */
+    char generated_name[MAX_NR_GENERATED_NAME];
+    /* e.g., tests/test_name.c */
+    char full_name[MAX_NR_NAME];
+    /* e.g., test_name.c */
     char name[MAX_NR_NAME];
     FILE *file;
     /* For osc data struct in src/osc.c */
@@ -276,6 +282,7 @@ static __always_inline void bad(struct scan_file_control *sfc,
         if (ret) {                                                        \
             (sfc)->offset = 0;                                            \
             (sfc)->line++;                                                \
+            (sfc)->buffer[MAX_BUFFER_LEN - 1] = '\0';                     \
         }                                                                 \
         ret;                                                              \
     })
@@ -346,10 +353,6 @@ enum {
     sym_true, /* C23 keyword true, false */
     sym_false,
 
-    /* preprocessor keywords */
-    sym_include,
-    sym_define,
-
 /* Decode the id until the symbol is between sym_id_start to sym_id_end. */
 /* sym id start - ptr_assign */
 #define sym_id_start sym_ptr_assign
@@ -379,6 +382,7 @@ enum {
     sym_bit_or, // |
     sym_comma, // ,
     sym_dot, // .
+    sym_ns, // #
     sym_seq_point, // ;
 #define sym_one_char_end sym_seq_point
 /* sym one char end - seq point */
@@ -440,6 +444,8 @@ static __always_inline char debug_sym_one_char(int sym)
         return '|';
     case sym_dot:
         return '.';
+    case sym_ns:
+        return '#';
     case sym_seq_point:
         return ';';
     case -ENODATA:

@@ -43,15 +43,18 @@ void drop_and_set(int __mut *ptr)
 
 void if_else_if(int __mut *ptr)
 {
-    release(ptr);
-
     if (1) {
         int a = 1;
+        *ptr = 1;
     } else if (1) {
         int a = 1;
+        release(ptr);
     } else if (1) {
         int a= 1;
     } else {
         int a = 1;
     }
+
+    *ptr = 1;
+    // warning: potentially drop the variable
 }

@@ -1,6 +1,8 @@
 #ifndef __OWNERSHIP_H__
 #define __OWNERSHIP_H__
 
+#if !defined(__NOT_CHECK_OSC__)
+
 #define __immutable /* Default */
 #define __mut
 #define __brw
@@ -27,5 +29,7 @@ NOTE_ALLOCATION(ALL_TYPE, malloc, free)
     release_function
 #define __RELEASE_DUMMY(ptr, ...)
 #define __RELEASE_REAL(type, ptr) release_##type(ptr)
+
+#endif /* __NOT_CHECK_OSC__ */
 
 #endif /* __OWNERSHIP_H__ */

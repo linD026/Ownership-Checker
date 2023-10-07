@@ -56,10 +56,6 @@ static struct symbol sym_table[] = {
     SYM_ENTRY(true),
     SYM_ENTRY(false),
 
-    /* preprocessor */
-    __SYM_ENTRY(#include, sym_include),
-    __SYM_ENTRY(#define, sym_define),
-
     /* sym id start */
     __SYM_ENTRY(->, sym_ptr_assign),
     __SYM_ENTRY(||, sym_logic_or),
@@ -121,6 +117,9 @@ static int __check_sym_one_char(struct scan_file_control *sfc)
         break;
     case '.':
         sym = sym_dot;
+        break;
+    case '#':
+        sym = sym_ns;
         break;
     case ';':
         sym = sym_seq_point;
@@ -447,6 +446,15 @@ static int __get_token(struct scan_file_control *sfc, struct symbol **id)
 
     /* check one word, should check after the table */
     sym = check_sym_one_char(sfc);
+    if (sym == sym_ns) {
+        next_line(sfc);
+        /*
+         * try_decode_action() will increase
+         * sfc->offset so we rollback here.
+         */
+        sfc->offset--;
+        return -EAGAIN;
+    }
     if (sym != sym_dump && sym != sym_quotation)
         goto out;
 

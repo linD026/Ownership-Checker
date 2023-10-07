@@ -1,3 +1,5 @@
+#include "../include/uapi/ownership.h"
+
 /* comment1 */
 int /* comment2 */  * /* comment 2-1 */ function /*
 comment 2-2
