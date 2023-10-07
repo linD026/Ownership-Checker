@@ -388,7 +388,7 @@ static void copy_variable(struct variable *dst, struct variable *src)
     }
     if (dst->ptr_info.flags & PTR_INFO_DROPPED) {
         __record_ptr_info(
-            &dst->ptr_info.set_info, src->ptr_info.dropped_info.buffer,
+            &dst->ptr_info.dropped_info, src->ptr_info.dropped_info.buffer,
             src->ptr_info.dropped_info.line, src->ptr_info.dropped_info.offset);
     }
 
