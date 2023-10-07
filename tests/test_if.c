@@ -40,3 +40,18 @@ void drop_and_set(int __mut *ptr)
 
     // warning: should drop: set at ptr = &a
 }
+
+void if_else_if(int __mut *ptr)
+{
+    release(ptr);
+
+    if (1) {
+        int a = 1;
+    } else if (1) {
+        int a = 1;
+    } else if (1) {
+        int a= 1;
+    } else {
+        int a = 1;
+    }
+}

@@ -750,15 +750,37 @@ static int decode_if(struct scan_file_control *sfc, struct symbol *symbol,
         sym = decode_stmt(sfc, symbol, sym);
     }
 
+peak_else:
     sym = peak_token(sfc, &symbol);
     debug_token(sfc, sym, symbol);
 
     if (sym == sym_else) {
         /* flush the peak token */
         flush_peak_token(sfc);
-        fork_and_switch_function_state(sfc);
+
         sym = get_token(sfc, &symbol);
         debug_token(sfc, sym, symbol);
+        if (sym == sym_if) {
+            sym = get_token(sfc, &symbol);
+            debug_token(sfc, sym, symbol);
+            if (unlikely(sym != sym_left_paren))
+                syntax_error(sfc);
+            sym = decode_expr(sfc, symbol, sym);
+            if (unlikely(sym != sym_right_paren))
+                syntax_error(sfc);
+            sym = get_token(sfc, &symbol);
+            debug_token(sfc, sym, symbol);
+            if (sym == sym_left_brace) {
+                fork_and_switch_function_state(sfc);
+                new_scope(sfc);
+                sym = decode_new_block(sfc, sym, symbol);
+            } else {
+                sym = decode_stmt(sfc, symbol, sym);
+            }
+            goto peak_else;
+        }
+
+        fork_and_switch_function_state(sfc);
 
         if (sym == sym_left_brace) {
             new_scope(sfc);
