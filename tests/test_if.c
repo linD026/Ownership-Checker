@@ -7,6 +7,8 @@ void set_and_drop(int __mut *ptr)
     if (1) {
         // case 1: the drop the variable
         release(ptr);
+    } else {
+        *ptr = 2;
     }
     
     *ptr = 1;

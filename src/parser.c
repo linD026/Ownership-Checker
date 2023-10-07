@@ -395,6 +395,26 @@ static void copy_variable(struct variable *dst, struct variable *src)
     copy_object(&dst->object, &src->object);
 }
 
+static void debug_variable(struct variable *var, const char *note)
+{
+#ifdef CONFIG_DEBUG
+    struct ptr_info *info = &var->ptr_info;
+    print("[VAR] ");
+    debug_object(&var->object, note);
+    if (info->flags & PTR_INFO_FUNC_ARG) {
+        print("[VAR] Is func parrameter\n");
+    }
+    if (info->flags & PTR_INFO_SET) {
+        print("[VAR] set at:%ld:%u\n", info->set_info.line,
+                info->set_info.offset);
+    }
+    if (info->flags & PTR_INFO_DROPPED) {
+        print("[VAR] dropped at:%ld:%u\n", info->dropped_info.line,
+                info->dropped_info.offset);
+    }
+#endif
+}
+
 #ifdef CONFIG_DEBUG
 static void debug_space_level(int nested_level)
 {
@@ -730,6 +750,12 @@ static int decode_if(struct scan_file_control *sfc, struct symbol *symbol,
         sym = decode_stmt(sfc, symbol, sym);
     }
 
+    // TODO:
+    // struct peak_token_info *pti = peak_token()
+    // apply_peak_token_info(sfc, peak_info)
+    sym = get_token(sfc, &symbol);
+    debug_token(sfc, sym, symbol);
+
     if (sym == sym_else) {
         fork_and_switch_function_state(sfc);
         sym = get_token(sfc, &symbol);
@@ -1008,6 +1034,7 @@ static int decode_stmt(struct scan_file_control *sfc, struct symbol *symbol,
             }
         } else if (sym == sym_if) {
             sym = decode_if(sfc, symbol, sym);
+            // TODO: how to handle the peak?
             continue;
         } else if (sym == sym_return) {
             if (sfc->function->object.is_ptr) {
@@ -1149,7 +1176,7 @@ static struct function_state *fork_function_state(struct function *func)
 
         copy_variable(new_var, param);
         list_add_tail(&new_var->parameter_node, &dst->parameter_head);
-        debug_object(&new_var->object, "fork param");
+        debug_variable(new_var, "fork param");
     }
 
     list_for_each_entry (scope, &src->func_scope_head, func_scope_node) {
@@ -1167,7 +1194,7 @@ static struct function_state *fork_function_state(struct function *func)
 
             copy_variable(new_var, var);
             list_add_tail(&new_var->scope_node, &new_scope->scope_var_head);
-            debug_object(&new_var->object, "fork var");
+            debug_variable(new_var, "fork var");
         }
 
         list_add_tail(&new_scope->func_scope_node, &dst->func_scope_head);
@@ -1188,7 +1215,7 @@ static void switch_function_state(struct scan_file_control *sfc,
 
 static void fork_and_switch_function_state(struct scan_file_control *sfc)
 {
-    switch_function_state(sfc, fork_function_state(sfc->function));
+    switch_function_state(sfc, fork_function_state(sfc->real_function));
 }
 
 static void restore_function_state(struct scan_file_control *sfc)
@@ -1202,7 +1229,7 @@ static void join_variable(struct variable *real, struct variable *tmp)
         if (tmp->ptr_info.flags & PTR_INFO_DROPPED &&
             real->ptr_info.flags & (PTR_INFO_SET | PTR_INFO_FUNC_ARG)) {
             pr_debug("drop the variable\n");
-            debug_object(&tmp->object, "dropped var");
+            debug_variable(tmp, "dropped var");
             __record_ptr_info(&real->ptr_info.dropped_info,
                               tmp->ptr_info.dropped_info.buffer,
                               tmp->ptr_info.dropped_info.line,
@@ -1219,14 +1246,14 @@ static void join_variable(struct variable *real, struct variable *tmp)
                                       tmp->ptr_info.set_info.buffer,
                                       tmp->ptr_info.set_info.line,
                                       tmp->ptr_info.set_info.offset);
-                    debug_object(&tmp->object,
+                    debug_variable(tmp,
                                  "set the real again (diff line)");
                     debug_ptr_info(&real->ptr_info.set_info, NULL);
                 } else if (tmp->ptr_info.set_info.offset !=
                            real->ptr_info.set_info.offset) {
                     real->ptr_info.set_info.offset =
                         tmp->ptr_info.set_info.offset;
-                    debug_object(&tmp->object,
+                    debug_variable(tmp,
                                  "set the real again (same line, diff offset)");
                     debug_ptr_info(&real->ptr_info.set_info, NULL);
                 } else {
@@ -1234,24 +1261,24 @@ static void join_variable(struct variable *real, struct variable *tmp)
                     // TODO: should we store the ptr info as stack?
                     // we can show the warning like:
                     // the object might be released at following ...
-                    pr_debug(
-                        "both are set, but the line/offset have problem\n");
-                    debug_ptr_info(&real->ptr_info.set_info, NULL);
-                    debug_ptr_info(&real->ptr_info.set_info, NULL);
+                    //pr_debug(
+                    //    "both are set, but the line/offset have problem\n");
+                    //debug_ptr_info(&real->ptr_info.set_info, NULL);
+                    //debug_ptr_info(&real->ptr_info.set_info, NULL);
                 }
             } else if (real->ptr_info.flags & PTR_INFO_DROPPED) {
                 __record_ptr_info(
                     &real->ptr_info.set_info, tmp->ptr_info.set_info.buffer,
                     tmp->ptr_info.set_info.line, tmp->ptr_info.set_info.offset);
                 ptr_info_mkset(&real->ptr_info);
-                debug_object(&tmp->object, "set the dropped var");
+                debug_variable(tmp, "set the dropped var");
                 debug_ptr_info(&real->ptr_info.set_info, NULL);
             }
         }
     } else {
         WARN_ON(1, "not the same variable");
-        debug_object(&tmp->object, "tmp");
-        debug_object(&real->object, "real");
+        debug_variable(tmp, "tmp");
+        debug_variable(real, "real");
     }
 }
 
@@ -1269,8 +1296,8 @@ static void join_single_function_state(struct function *func,
     list_for_each (&func->parameter_head) {
         struct variable *param =
             container_of(curr, struct variable, parameter_node);
-        debug_object(&param->object, "join param");
-        debug_object(&tmp_var->object, "join tmp_var");
+        debug_variable(param, "join param");
+        debug_variable(tmp_var, "join tmp_var");
         join_variable(param, tmp_var);
         tmp_var = list_next_entry(tmp_var, parameter_node);
     }
@@ -1283,8 +1310,8 @@ static void join_single_function_state(struct function *func,
         tmp_var = list_first_entry(&scope->scope_var_head, struct variable,
                                    scope_node);
         for_each_var (scope, var) {
-            debug_object(&var->object, "join var");
-            debug_object(&tmp_var->object, "join tmp_var");
+            debug_variable(var, "join var");
+            debug_variable(tmp_var, "join tmp_var");
             join_variable(var, tmp_var);
             tmp_var = list_next_entry(tmp_var, scope_node);
         }
@@ -1303,7 +1330,9 @@ static void join_function_state(struct scan_file_control *sfc)
         BUG_ON(!cmp_object(&tmp->function.object, &func->object),
                "not the same function");
         list_del(&tmp->state_node);
+        pr_debug("The start of join the new state\n");
         join_single_function_state(func, tmp);
+        pr_debug("The end of join the new state\n");
         func->nr_state--;
     }
 
