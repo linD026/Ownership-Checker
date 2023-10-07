@@ -464,10 +464,61 @@ out:
     return sym;
 }
 
+struct peak_token_info {
+    struct symbol *symbol;
+    int sym;
+    struct list_head peak_node;
+};
+
 int get_token(struct scan_file_control *sfc, struct symbol **id)
 {
+    if (sfc->peak) {
+        struct peak_token_info *pti;
+        int sym = sym_dump;
+
+        pr_debug("Pop the peak token (%d) from the list\n", sfc->peak);
+
+        BUG_ON(list_empty(&sfc->peak_head), "peak != 0 but list is empty");
+        pti = list_first_entry(&sfc->peak_head, struct peak_token_info,
+                               peak_node);
+        *id = pti->symbol;
+        sym = pti->sym;
+        list_del(&pti->peak_node);
+        free(pti);
+        sfc->peak--;
+        return sym;
+    }
+
     *id = NULL;
     return try_decode_action(sfc, __get_token, id);
+}
+
+/*
+ * After called the peak_token(), in order to get the next token which
+ * is behind the peak token, we can use flush_peak_token() to flush
+ * the token we peak.
+ */
+int peak_token(struct scan_file_control *sfc, struct symbol **id)
+{
+    int ret = sym_dump;
+    struct peak_token_info *pti = malloc(sizeof(struct peak_token_info));
+    BUG_ON(!pti, "malloc");
+
+    *id = NULL;
+    ret = try_decode_action(sfc, __get_token, id);
+    if (ret == -ENODATA) {
+        free(pti);
+        return ret;
+    }
+
+    pti->symbol = *id;
+    pti->sym = ret;
+    list_add(&pti->peak_node, &sfc->peak_head);
+    sfc->peak++;
+
+    pr_debug("Push the peak token (%d) to the list\n", sfc->peak);
+
+    return ret;
 }
 
 int cmp_token(struct symbol *l, struct symbol *r)

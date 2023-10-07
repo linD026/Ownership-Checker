@@ -406,11 +406,11 @@ static void debug_variable(struct variable *var, const char *note)
     }
     if (info->flags & PTR_INFO_SET) {
         print("[VAR] set at:%ld:%u\n", info->set_info.line,
-                info->set_info.offset);
+              info->set_info.offset);
     }
     if (info->flags & PTR_INFO_DROPPED) {
         print("[VAR] dropped at:%ld:%u\n", info->dropped_info.line,
-                info->dropped_info.offset);
+              info->dropped_info.offset);
     }
 #endif
 }
@@ -750,13 +750,12 @@ static int decode_if(struct scan_file_control *sfc, struct symbol *symbol,
         sym = decode_stmt(sfc, symbol, sym);
     }
 
-    // TODO:
-    // struct peak_token_info *pti = peak_token()
-    // apply_peak_token_info(sfc, peak_info)
-    sym = get_token(sfc, &symbol);
+    sym = peak_token(sfc, &symbol);
     debug_token(sfc, sym, symbol);
 
     if (sym == sym_else) {
+        /* flush the peak token */
+        flush_peak_token(sfc);
         fork_and_switch_function_state(sfc);
         sym = get_token(sfc, &symbol);
         debug_token(sfc, sym, symbol);
@@ -1246,15 +1245,14 @@ static void join_variable(struct variable *real, struct variable *tmp)
                                       tmp->ptr_info.set_info.buffer,
                                       tmp->ptr_info.set_info.line,
                                       tmp->ptr_info.set_info.offset);
-                    debug_variable(tmp,
-                                 "set the real again (diff line)");
+                    debug_variable(tmp, "set the real again (diff line)");
                     debug_ptr_info(&real->ptr_info.set_info, NULL);
                 } else if (tmp->ptr_info.set_info.offset !=
                            real->ptr_info.set_info.offset) {
                     real->ptr_info.set_info.offset =
                         tmp->ptr_info.set_info.offset;
-                    debug_variable(tmp,
-                                 "set the real again (same line, diff offset)");
+                    debug_variable(
+                        tmp, "set the real again (same line, diff offset)");
                     debug_ptr_info(&real->ptr_info.set_info, NULL);
                 } else {
                     // TODO: fixme
@@ -1484,8 +1482,11 @@ int parser(struct file_info *fi)
         .size = MAX_BUFFER_LEN,
         .offset = 0,
         .line = 0,
+        .peak = 0,
         .function = NULL,
     };
+
+    list_init(&sfc.peak_head);
 
     fi->file = fopen(fi->name, "r");
     BUG_ON(!fi->file, "fopen:%s", fi->name);

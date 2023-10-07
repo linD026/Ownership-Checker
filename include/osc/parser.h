@@ -132,6 +132,11 @@ struct scan_file_control {
     unsigned int offset;
     unsigned long line;
 
+    struct /* peak token info */ {
+        unsigned int peak;
+        struct list_head peak_head;
+    };
+
     struct function *function;
     struct function *real_function;
 };
@@ -474,5 +479,13 @@ static __allow_unused void __debug_token(struct scan_file_control *sfc, int sym,
 #endif /* CONFIG_DEBUG */
 
 struct symbol *new_anon_symbol(void);
+
+int peak_token(struct scan_file_control *sfc, struct symbol **id);
+
+static inline void flush_peak_token(struct scan_file_control *sfc)
+{
+    struct symbol *symbol;
+    get_token(sfc, &symbol);
+}
 
 #endif /* __OSC_PARSER_H__ */
