@@ -2,6 +2,72 @@
 #include <osc/list.h>
 #include <osc/debug.h>
 #include <osc/parser.h>
+#include <string.h>
+
+/*
+ * We don't check the terminal symbol '\0', since we should make sure that
+ * each time we iterate the buffer we won't skip any symbol.
+ * But for some times (i.e., debugging), we can add this.
+ * (sfc)->buffer[(sfc)->offset] == '\0' ||\
+ */
+#define line_end(sfc) \
+    ((sfc)->offset >= (sfc)->size || (sfc)->buffer[(sfc)->offset] == '\n')
+
+#define buffer_rest(sfc) ((sfc)->size - (sfc)->offset + 1)
+
+#define current_char(sfc) sfc->buffer[sfc->offset]
+
+enum { CHAR_BLANK = 0, CHAR_SYMBOL };
+
+static __always_inline int next_line(struct scan_file_control *sfc)
+{
+    int ret = -ENODATA;
+
+    memset(sfc->buffer, '\0', MAX_BUFFER_LEN);
+    ret = (fgets((sfc)->buffer, (sfc)->size, (sfc)->fi->file) != NULL);
+    if (ret) {
+        (sfc)->offset = 0;
+        (sfc)->line++;
+        (sfc)->buffer[MAX_BUFFER_LEN - 1] = '\0';
+    }
+
+    return ret;
+}
+
+int token_init(struct scan_file_control *sfc)
+{
+    return next_line(sfc);
+}
+
+static __always_inline int __next_chars(struct scan_file_control *sfc,
+                                        int blank_stop)
+{
+    do {
+        for (char ch = (sfc)->buffer[(sfc)->offset]; !line_end(sfc);
+             ch = (sfc)->buffer[++(sfc)->offset]) {
+            if (blank(ch)) {
+                if (blank_stop)
+                    return 0;
+                continue;
+            }
+            return 0;
+        }
+        if (blank_stop)
+            return 0;
+    } while (next_line(sfc));
+
+    return -ENODATA;
+}
+
+static __always_inline int next_chars(struct scan_file_control *sfc)
+{
+    return __next_chars(sfc, 0);
+}
+
+static __always_inline int next_chars_blank_stop(struct scan_file_control *sfc)
+{
+    return __next_chars(sfc, 1);
+}
 
 #define __SYM_ENTRY(_name, _flags) \
     [_flags] = { .name = #_name, .len = sizeof(#_name) - 1, .flags = _flags }
@@ -137,82 +203,6 @@ static int check_sym_one_char(struct scan_file_control *sfc)
     return sym;
 }
 
-/*
- * We don't check the terminal symbol '\0', since we should make sure that
- * each time we iterate the buffer we won't skip any symbol.
- * But for some times (i.e., debugging), we can add this.
- * (sfc)->buffer[(sfc)->offset] == '\0' ||\
- */
-#define line_end(sfc) \
-    ((sfc)->offset >= (sfc)->size || (sfc)->buffer[(sfc)->offset] == '\n')
-
-#define buffer_for_each(sfc)                                     \
-    for (char ch = (sfc)->buffer[(sfc)->offset]; !line_end(sfc); \
-         ch = (sfc)->buffer[++(sfc)->offset])
-
-#define buffer_rest(sfc) ((sfc)->size - (sfc)->offset + 1)
-
-/*
- * It will get the next non-blank symbols. it's same as following function:
- *
- *   static __always_inline int decode_obj_action(
- *       struct scan_file_control *sfc, struct object_struct *obj,
- *       int (*action)(struct scan_file_control *, struct object_struct *))
- *   {
- *       if (!action)
- *           return -EINVAL;
- *   again:
- *       buffer_for_each (sfc) {
- *           if (blank(ch))
- *               continue;
- *           if (!action(sfc, obj))
- *               return 0;
- *       }
- *       next_line(sfc);
- *       goto again;
- *   }
- *
- */
-#define ___decode_action(sfc, action, id, ret, ...) \
-    do {                                            \
-        da_##id##_again : buffer_for_each (sfc)     \
-        {                                           \
-            if (blank(ch))                          \
-                continue;                           \
-            ret = action(sfc, ##__VA_ARGS__);       \
-            if (ret != -EAGAIN)                     \
-                goto da_##id##_out;                 \
-        }                                           \
-        if (next_line(sfc))                         \
-            goto da_##id##_again;                   \
-        else                                        \
-            ret = -ENODATA;                         \
-        da_##id##_out:;                             \
-    } while (0)
-
-#define __decode_action(sfc, action, id, ...)                                \
-    ({                                                                       \
-        int __da_ret = 0;                                                    \
-        ___decode_action(sfc, action, id, __da_ret, ##__VA_ARGS__);          \
-        WARN_ON(__da_ret < 0 && __da_ret != -EAGAIN,                         \
-                "action:%s, error:%s, buf:%s", #action, strerror(-__da_ret), \
-                &sfc->buffer[sfc->offset]);                                  \
-        __da_ret;                                                            \
-    })
-
-#define decode_action(sfc, action, ...) \
-    __decode_action(sfc, action, __LINE__, ##__VA_ARGS__)
-
-#define __try_decode_action(sfc, action, id, ...)                   \
-    ({                                                              \
-        int __da_ret = 0;                                           \
-        ___decode_action(sfc, action, id, __da_ret, ##__VA_ARGS__); \
-        __da_ret;                                                   \
-    })
-
-#define try_decode_action(sfc, action, ...) \
-    __try_decode_action(sfc, action, __LINE__, ##__VA_ARGS__)
-
 static __always_inline int check_symbol(struct scan_file_control *sfc,
                                         struct symbol *sym)
 {
@@ -257,6 +247,19 @@ static __always_inline int check_symbol_table(struct scan_file_control *sfc,
     return __check_symbol_table(sfc, id, 0, len);
 }
 
+static int skip_preprocessor(struct scan_file_control *sfc)
+{
+    char ch = current_char(sfc);
+
+    if (ch == '#') {
+        print("skip line: %s", sfc->buffer);
+        if (next_line(sfc))
+            return 1;
+        BUG_ON(1, "skip_preprocessor");
+    }
+    return 0;
+}
+
 //
 // We have two type of comments:
 // first:  //
@@ -270,7 +273,9 @@ static int skip_comments(struct scan_file_control *sfc)
     int step_1 = 0;
 
 again:
-    buffer_for_each (sfc) {
+    while (next_chars(sfc) != -ENODATA) {
+        char ch = current_char(sfc);
+
         if (ch == '/') {
             /* check the first type */
             if (sfc->offset + 1 < sfc->size && sfc->offset + 1 != '\n') {
@@ -303,6 +308,7 @@ again:
          * If we are step 1, we don't have to drop the progress
          * since the comment can be the different line.
          */
+        sfc->offset++;
     }
 
     if (step_1) {
@@ -354,8 +360,13 @@ static int insert_sym_id(struct scan_file_control *sfc, struct symbol **id)
     struct symbol_id_struct *symbol_id = NULL;
     unsigned int orig_offset = sfc->offset;
     int len = 0;
+    int ret = 0;
 
-    while (!line_end(sfc)) {
+    while ((ret = next_chars_blank_stop(sfc)) != -ENODATA) {
+        //print("%s:%c, orig_offset:%d, cur_offset:%d\n",
+        //      __func__, current_char(sfc), orig_offset, sfc->offset);
+        if (line_end(sfc) || blank(current_char(sfc)))
+            goto get_id;
         if (__check_symbol_table(sfc, id, sym_id_start, &len) != sym_dump) {
             /*
              * Following show the offsets value,
@@ -371,8 +382,6 @@ static int insert_sym_id(struct scan_file_control *sfc, struct symbol **id)
             sfc->offset -= len;
             goto get_id;
         } else if (__check_sym_one_char(sfc) != sym_dump)
-            goto get_id;
-        if (blank(sfc->buffer[sfc->offset]))
             goto get_id;
         sfc->offset++;
     }
@@ -412,8 +421,9 @@ static int get_string_literals(struct scan_file_control *sfc,
                                struct symbol **id)
 {
     pr_debug("string literals start\n");
-again:
-    buffer_for_each (sfc) {
+    while (next_chars(sfc) != -ENODATA) {
+        char ch = current_char(sfc);
+
         if (ch == '"') {
 #ifdef CONFIG_DEBUG
             print("\n");
@@ -426,9 +436,8 @@ again:
         print("%c", ch);
 #endif
     }
-    if (next_line(sfc))
-        goto again;
-    return -EAGAIN;
+
+    return -ENODATA;
 }
 
 static int __get_token(struct scan_file_control *sfc, struct symbol **id)
@@ -436,38 +445,42 @@ static int __get_token(struct scan_file_control *sfc, struct symbol **id)
     int sym = sym_dump;
     int len = 0;
 
-    if (skip_comments(sfc))
-        return -EAGAIN;
+    while (next_chars(sfc) != -ENODATA) {
+        sym = skip_preprocessor(sfc);
+        if (sym == 1)
+            continue;
+        else if (sym == -ENODATA)
+            return -ENODATA;
 
-    /* check the keyword */
-    sym = check_symbol_table(sfc, id, &len);
-    if (sym != sym_dump)
-        goto out;
+        if (skip_comments(sfc))
+            return -ENODATA;
 
-    /* check one word, should check after the table */
-    sym = check_sym_one_char(sfc);
-    if (sym == sym_ns) {
-        next_line(sfc);
-        /*
-         * try_decode_action() will increase
-         * sfc->offset so we rollback here.
-         */
-        sfc->offset--;
-        return -EAGAIN;
-    }
-    if (sym != sym_dump && sym != sym_quotation)
-        goto out;
-
-    /* TODO: check num. */
-    if (sym == sym_quotation) {
-        sym = get_string_literals(sfc, id);
+        /* check the keyword */
+        sym = check_symbol_table(sfc, id, &len);
         if (sym != sym_dump)
             goto out;
+
+        /* check one word, should check after the table */
+        sym = check_sym_one_char(sfc);
+        if (sym != sym_dump && sym != sym_quotation)
+            goto out;
+
+        /* TODO: check num. */
+        if (sym == sym_quotation) {
+            sym = get_string_literals(sfc, id);
+            if (sym != sym_dump)
+                goto out;
+        }
+
+        sym = insert_sym_id(sfc, id);
+        if (sym != sym_dump)
+            goto out;
+
+        sfc->offset++;
     }
 
-    sym = insert_sym_id(sfc, id);
     if (sym == sym_dump)
-        sym = -EAGAIN;
+        return -ENODATA;
 out:
     return sym;
 }
@@ -498,7 +511,8 @@ int get_token(struct scan_file_control *sfc, struct symbol **id)
     }
 
     *id = NULL;
-    return try_decode_action(sfc, __get_token, id);
+
+    return __get_token(sfc, id);
 }
 
 /*
@@ -513,7 +527,7 @@ int peak_token(struct scan_file_control *sfc, struct symbol **id)
     BUG_ON(!pti, "malloc");
 
     *id = NULL;
-    ret = try_decode_action(sfc, __get_token, id);
+    ret = __get_token(sfc, id);
     if (ret == -ENODATA) {
         free(pti);
         return ret;

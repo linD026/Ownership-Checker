@@ -275,19 +275,9 @@ static __always_inline void bad(struct scan_file_control *sfc,
     while ((sfc)->offset = 0, (sfc)->line++, \
            fgets((sfc)->buffer, (sfc)->size, (sfc)->fi->file) != NULL)
 
-#define next_line(sfc)                                                    \
-    ({                                                                    \
-        int ret =                                                         \
-            (fgets((sfc)->buffer, (sfc)->size, (sfc)->fi->file) != NULL); \
-        if (ret) {                                                        \
-            (sfc)->offset = 0;                                            \
-            (sfc)->line++;                                                \
-            (sfc)->buffer[MAX_BUFFER_LEN - 1] = '\0';                     \
-        }                                                                 \
-        ret;                                                              \
-    })
-
 /* Token */
+
+int token_init(struct scan_file_control *sfc);
 
 enum {
     sym_dump = -1,

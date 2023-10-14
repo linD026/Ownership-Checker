@@ -125,7 +125,8 @@ static void osc_getopt(struct osc_data *data, int argc, char *argv[])
             data->include_dir[MAX_DIR_LEN - 1] = '\0';
             break;
         default:
-            pr_err("Usage: %s [...] -P -C <compiler> -I <directory>\n", argv[0]);
+            pr_err("Usage: %s [...] -P -C <compiler> -I <directory>\n",
+                   argv[0]);
             BUG_ON(1, "Invalid option(s)");
         }
     }

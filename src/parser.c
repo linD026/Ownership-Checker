@@ -1483,10 +1483,9 @@ out:
 
 static void scan_file(struct scan_file_control *sfc)
 {
-    if (next_line(sfc)) {
-        while (decode_file_scope(sfc) != -ENODATA)
-            ;
-    }
+    token_init(sfc);
+    while (decode_file_scope(sfc) != -ENODATA)
+        ;
 }
 
 int parser(struct file_info *fi)
