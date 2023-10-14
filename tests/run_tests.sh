@@ -17,6 +17,7 @@ declare -a test_files=(
     "test_write.c"
     "test_loop.c"
     "test_if.c"
+    "test_string_literals.c"
     "test_macro.c"
 )
 

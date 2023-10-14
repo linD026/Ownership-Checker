@@ -17,8 +17,6 @@
 
 #define current_char(sfc) sfc->buffer[sfc->offset]
 
-enum { CHAR_BLANK = 0, CHAR_SYMBOL };
-
 static __always_inline int next_line(struct scan_file_control *sfc)
 {
     int ret = -ENODATA;
@@ -446,7 +444,7 @@ static int get_string_literals(struct scan_file_control *sfc,
                                struct symbol **id)
 {
     pr_debug("string literals start\n");
-    while (next_chars(sfc) != -ENODATA) {
+    while (next_chars_blank_stop(sfc) != -ENODATA) {
         char ch = current_char(sfc);
 
         if (ch == '"') {
@@ -460,6 +458,7 @@ static int get_string_literals(struct scan_file_control *sfc,
 #ifdef CONFIG_DEBUG
         print("%c", ch);
 #endif
+        sfc->offset++;
     }
 
     return -ENODATA;
