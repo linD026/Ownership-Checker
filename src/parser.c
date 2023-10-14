@@ -1499,7 +1499,6 @@ int parser(struct file_info *fi)
         .function = NULL,
     };
 
-
     /*
      * In this case, we have three names for the files,
      * one name for the error message.

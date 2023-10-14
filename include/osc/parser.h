@@ -251,15 +251,15 @@ static __always_inline void bad_template(int level, const char *file,
 static __always_inline void bad(struct scan_file_control *sfc,
                                 const char *warning)
 {
-    bad_template(0, sfc->fi->name, sfc->line, sfc->buffer, sfc->offset, NULL,
+    bad_template(0, sfc->name, sfc->line, sfc->buffer, sfc->offset, NULL,
                  warning);
 }
 
 #define syntax_error(sfc) bad(sfc, "syntax error")
 
-#define bad_on_ptr_info(sfc, info, note)                         \
-    bad_template(1, sfc->fi->name, (info)->line, (info)->buffer, \
-                 (info)->offset, note, NULL)
+#define bad_on_ptr_info(sfc, info, note)                                     \
+    bad_template(1, sfc->name, (info)->line, (info)->buffer, (info)->offset, \
+                 note, NULL)
 
 #define bad_on_dropped_info(sfc, dropped_info) \
     bad_on_ptr_info(sfc, dropped_info, "Dropped at")

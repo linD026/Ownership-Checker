@@ -249,6 +249,8 @@ static int skip_preprocessor(struct scan_file_control *sfc)
     char ch = current_char(sfc);
 
     if (ch == '#') {
+        int i = 0;
+        char tmp[MAX_NR_GENERATED_NAME] = { 0 };
 #ifdef CONFIG_DEBUG
         unsigned long old_line = sfc->line;
         char old_name[MAX_NR_GENERATED_NAME] = { 0 };
@@ -256,7 +258,20 @@ static int skip_preprocessor(struct scan_file_control *sfc)
         strncpy(old_name, sfc->name, MAX_NR_GENERATED_NAME);
         old_name[MAX_NR_GENERATED_NAME - 1] = '\0';
 #endif
-        sscanf(sfc->buffer, "%c %lu %s", &ch, &sfc->line, sfc->name);
+
+        /*
+         * The tmp is the file name, e.g, "test/test_if.c".
+         * We should not copy the ".
+         */
+        sscanf(sfc->buffer, "%c %lu %s", &ch, &sfc->line, tmp);
+        tmp[MAX_NR_GENERATED_NAME - 1] = '\0';
+        /* Skip the first " */
+        for (i = 1, ch = tmp[i]; i < MAX_NR_GENERATED_NAME && ch != '"';
+             ch = tmp[++i]) {
+            sfc->name[i - 1] = tmp[i];
+        }
+        sfc->name[i - 1] = '\0';
+
 #ifdef CONFIG_DEBUG
         pr_debug("[UPDATE] line: %lu -> %lu, file: %s -> %s\n", old_line,
                  sfc->line, old_name, sfc->name);
