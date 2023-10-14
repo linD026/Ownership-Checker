@@ -274,10 +274,6 @@ static __always_inline void bad(struct scan_file_control *sfc,
 #define debug_ptr_info(...)
 #endif /* CONFIG_DEBUG */
 
-#define for_each_line(sfc)                   \
-    while ((sfc)->offset = 0, (sfc)->line++, \
-           fgets((sfc)->buffer, (sfc)->size, (sfc)->fi->file) != NULL)
-
 /* Token */
 
 enum {
