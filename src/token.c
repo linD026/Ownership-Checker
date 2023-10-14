@@ -252,9 +252,22 @@ static int skip_preprocessor(struct scan_file_control *sfc)
     char ch = current_char(sfc);
 
     if (ch == '#') {
-        print("skip line: %s", sfc->buffer);
-        if (next_line(sfc))
+#ifdef CONFIG_DEBUG
+        unsigned long old_line = sfc->line;
+        char old_name[MAX_NR_GENERATED_NAME] = { 0 };
+
+        strncpy(old_name, sfc->name, MAX_NR_GENERATED_NAME);
+        old_name[MAX_NR_GENERATED_NAME - 1] = '\0';
+#endif
+        sscanf(sfc->buffer, "%c %lu %s", &ch, &sfc->line, sfc->name);
+#ifdef CONFIG_DEBUG
+        pr_debug("[UPDATE] line: %lu -> %lu, file: %s -> %s\n", old_line,
+                 sfc->line, old_name, sfc->name);
+#endif
+        if (next_line(sfc)) {
+            sfc->line--;
             return 1;
+        }
         BUG_ON(1, "skip_preprocessor");
     }
     return 0;

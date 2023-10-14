@@ -1500,6 +1500,7 @@ int parser(struct file_info *fi)
     };
 
     list_init(&sfc.peak_head);
+    strncpy(sfc.name, fi->generated_name, MAX_NR_GENERATED_NAME);
     fi->file = fopen(fi->generated_name, "r");
     BUG_ON(!fi->file, "fopen:%s", fi->generated_name);
     rewind(fi->file);

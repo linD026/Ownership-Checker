@@ -133,6 +133,9 @@ struct file_info {
 
 struct scan_file_control {
     struct file_info *fi;
+
+    char name[MAX_NR_GENERATED_NAME];
+
     char buffer[MAX_BUFFER_LEN];
     unsigned int size;
     unsigned int offset;
