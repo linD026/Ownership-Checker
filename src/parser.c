@@ -1499,6 +1499,18 @@ int parser(struct file_info *fi)
         .function = NULL,
     };
 
+
+    /*
+     * In this case, we have three names for the files,
+     * one name for the error message.
+     *
+     * - original file name: fi->name
+     * - original file name with full path: fi->full_name
+     * - generated file name by compiler (original file name with -P flag):
+     *   fi->genertad_name
+     * - the name show on error message (this should be same as fi->name):
+     *   sfc->name
+     */
     list_init(&sfc.peak_head);
     strncpy(sfc.name, fi->generated_name, MAX_NR_GENERATED_NAME);
     fi->file = fopen(fi->generated_name, "r");

@@ -8,6 +8,16 @@ make verbose=1      # Debug mode
 make clean          # Delete generated files
 ```
 
+## Flags and Preprocessor
+
+**WARNING** Now we use the compiler, like gcc or clang, to preprocess the C
+source for helping us handle the header and macro. But in the future, we
+will handle it by ourselves.
+
+- `-P`: Analyzing the input file without preprocessing
+- `-C <compiler>`: The compiler for preprocessing, the default is `gcc`
+- `-I <directory>`
+
 ## Example
 
 ```

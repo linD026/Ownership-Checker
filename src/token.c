@@ -184,9 +184,6 @@ static int __check_sym_one_char(struct scan_file_control *sfc)
     case '.':
         sym = sym_dot;
         break;
-    case '#':
-        sym = sym_ns;
-        break;
     case ';':
         sym = sym_seq_point;
         break;

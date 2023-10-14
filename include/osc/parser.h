@@ -280,8 +280,6 @@ static __always_inline void bad(struct scan_file_control *sfc,
 
 /* Token */
 
-int token_init(struct scan_file_control *sfc);
-
 enum {
     sym_dump = -1,
 
@@ -375,7 +373,6 @@ enum {
     sym_bit_or, // |
     sym_comma, // ,
     sym_dot, // .
-    sym_ns, // #
     sym_seq_point, // ;
 #define sym_one_char_end sym_seq_point
 /* sym one char end - seq point */
@@ -393,10 +390,21 @@ enum {
 #define range_in_sym(range_name, number) \
     (sym_##range_name##_start <= number && number <= sym_##range_name##_end)
 
+int token_init(struct scan_file_control *sfc);
 void symbol_id_container_release(void);
 int get_token(struct scan_file_control *sfc, struct symbol **id);
 int cmp_token(struct symbol *l, struct symbol *r);
 const char *token_name(int n);
+
+struct symbol *new_anon_symbol(void);
+
+int peak_token(struct scan_file_control *sfc, struct symbol **id);
+
+static inline void flush_peak_token(struct scan_file_control *sfc)
+{
+    struct symbol *symbol;
+    get_token(sfc, &symbol);
+}
 
 // TODO: We should auto generate these...
 static __always_inline char debug_sym_one_char(int sym)
@@ -437,8 +445,6 @@ static __always_inline char debug_sym_one_char(int sym)
         return '|';
     case sym_dot:
         return '.';
-    case sym_ns:
-        return '#';
     case sym_seq_point:
         return ';';
     case -ENODATA:
@@ -476,15 +482,4 @@ static __allow_unused void __debug_token(struct scan_file_control *sfc, int sym,
     do {                              \
     } while (0)
 #endif /* CONFIG_DEBUG */
-
-struct symbol *new_anon_symbol(void);
-
-int peak_token(struct scan_file_control *sfc, struct symbol **id);
-
-static inline void flush_peak_token(struct scan_file_control *sfc)
-{
-    struct symbol *symbol;
-    get_token(sfc, &symbol);
-}
-
 #endif /* __OSC_PARSER_H__ */
