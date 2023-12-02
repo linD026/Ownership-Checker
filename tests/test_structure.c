@@ -15,6 +15,8 @@ struct recursive_struct {
             unsigned long ptrD;
         } rs_B;
     } anon_A;
+    struct data_struct data_struct;
+    struct data_struct data;
 };
 
 void pass_struct_member_function(int *ptr)

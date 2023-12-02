@@ -96,6 +96,25 @@ struct variable {
     };
 };
 
+// TODO: hadnle this like the structure (support scope definition, etc)
+struct typedef_info_node {
+    struct symbol *new_type_symbol;
+    // file,line,offset,buffer info
+    struct list_head node;
+};
+
+struct typedef_info {
+    struct object orig_object;
+    struct list_head head;
+
+    /* sfc->typedef_info_head */
+    struct list_head node;
+};
+
+struct union_info {
+    // TODO
+};
+
 struct scope {
     struct list_head func_scope_node;
     struct list_head scope_var_head;
@@ -146,6 +165,9 @@ struct scan_file_control {
         struct list_head peak_head;
     };
 
+    struct list_head typedef_info_head;
+
+    /* for the if statement (control dependence). */
     struct function *function;
     struct function *real_function;
 };
@@ -329,6 +351,7 @@ enum {
     /* sym type end - void */
 
     /* other multiple char keywords */
+    sym_typedef,
     sym_do,
     sym_while,
     sym_for,

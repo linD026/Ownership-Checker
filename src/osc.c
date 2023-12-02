@@ -139,6 +139,7 @@ int main(int argc, char *argv[])
 
     osc_getopt(&osc_data, argc, argv);
     osc_getfile(&osc_data, argc, argv);
+    // TODO: Per-file thread support with shared data?
     list_for_each (&osc_data.file_head) {
         struct file_info *fi = container_of(curr, struct file_info, node);
         print("OSC Analyzes file: %s\n", fi->full_name);

@@ -109,6 +109,7 @@ static struct symbol sym_table[] = {
     SYM_ENTRY(void),
 
     /* other keywords */
+    SYM_ENTRY(typedef),
     SYM_ENTRY(do),
     SYM_ENTRY(while),
     SYM_ENTRY(for),
@@ -247,6 +248,7 @@ static int skip_preprocessor(struct scan_file_control *sfc)
     char ch = current_char(sfc);
 
     if (ch == '#') {
+        // TODO: handle the macro
         int i = 0;
         char tmp[MAX_NR_GENERATED_NAME] = { 0 };
 #ifdef CONFIG_DEBUG
@@ -261,7 +263,14 @@ static int skip_preprocessor(struct scan_file_control *sfc)
          * The tmp is the file name, e.g, "test/test_if.c".
          * We should not copy the ".
          */
-        sscanf(sfc->buffer, "%c %lu %s", &ch, &sfc->line, tmp);
+        i = sscanf(sfc->buffer, "%c %lu %s", &ch, &sfc->line, tmp);
+        /* skip #icnlude<...> */
+        if (i < 3) {
+            pr_debug("sscanf returns: %d < 3\n", i);
+            if (!next_line(sfc))
+                return -ENODATA;
+            return 1;
+        }
         tmp[MAX_NR_GENERATED_NAME - 1] = '\0';
         /* Skip the first " */
         for (i = 1, ch = tmp[i]; i < MAX_NR_GENERATED_NAME && ch != '"';
@@ -270,10 +279,8 @@ static int skip_preprocessor(struct scan_file_control *sfc)
         }
         sfc->name[i - 1] = '\0';
 
-#ifdef CONFIG_DEBUG
         pr_debug("[UPDATE] line: %lu -> %lu, file: %s -> %s\n", old_line,
                  sfc->line, old_name, sfc->name);
-#endif
         if (next_line(sfc)) {
             sfc->line--;
             return 1;
@@ -303,12 +310,10 @@ again:
             /* check the first type */
             if (sfc->offset + 1 < sfc->size && sfc->offset + 1 != '\n') {
                 sfc->offset++;
+                // TODO: check the logic here
                 if (sfc->buffer[sfc->offset] == '/') {
                     if (!next_line(sfc))
                         return -ENODATA;
-                    /* try_decode_action will inc offset, so rollback here. */
-                    sfc->offset--;
-                    return -EAGAIN;
                 } else if (sfc->buffer[sfc->offset] == '*') {
                     /* Enter the step 1 */
                     step_1 = 1;
@@ -322,7 +327,7 @@ again:
             if (sfc->offset + 1 < sfc->size && sfc->offset + 1 != '\n') {
                 sfc->offset++;
                 if (sfc->buffer[sfc->offset] == '/') {
-                    return -EAGAIN;
+                    continue;
                 }
             }
         } else if (!step_1)
@@ -443,21 +448,17 @@ out:
 static int get_string_literals(struct scan_file_control *sfc,
                                struct symbol **id)
 {
+    // TODO: check the logic
     pr_debug("string literals start\n");
     while (next_chars_blank_stop(sfc) != -ENODATA) {
         char ch = current_char(sfc);
 
         if (ch == '"') {
-#ifdef CONFIG_DEBUG
-            print("\n");
-#endif
             pr_debug("string literals end\n");
             sfc->offset++;
             return sym_string_literals;
         }
-#ifdef CONFIG_DEBUG
-        print("%c", ch);
-#endif
+        pr_debug("%c\n", ch);
         sfc->offset++;
     }
 

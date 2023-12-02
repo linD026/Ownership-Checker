@@ -6,6 +6,8 @@
 #include <stdlib.h>
 #include <errno.h>
 
+// TODO: support union
+
 static struct function_state *fork_function_state(struct function *func);
 static void switch_function_state(struct scan_file_control *sfc,
                                   struct function_state *new);
@@ -208,6 +210,17 @@ static int compose_object(struct scan_file_control *sfc, struct object *obj,
         debug_token(sfc, sym, symbol);
     }
 
+    /* the typedef case */
+    if (sym == sym_id && 0) {
+        // search orig type
+
+        // struct typedef_info *ti = search_typedef_info(sfc, obj->id);
+        // assigned to the old type
+
+        sym = get_token(sfc, &symbol);
+        debug_token(sfc, sym, symbol);
+    }
+
     if (range_in_sym(type, sym)) {
         obj->type = sym;
         if (sym == sym_struct) {
@@ -270,6 +283,7 @@ attr_again:
     }
 
     if (sym == sym_aster) {
+        // TODO: change the is_ptr to counter instead of flag
         obj->is_ptr = 1;
         do {
             sym = get_token(sfc, &symbol);
@@ -282,8 +296,10 @@ attr_again:
         debug_token(sfc, sym, symbol);
     }
 
-    if (sym == sym_id)
+    if (sym == sym_id) {
+        // assert the sym_id is not the typedef symbol
         obj->id = symbol;
+    }
 
     return sym;
 }
@@ -502,6 +518,26 @@ static struct structure *compose_structure(struct scan_file_control *sfc,
     // TODO: insert to the scope meta data (or internal struct),
     list_add_tail(&s->node, &sfc->fi->struct_head);
 
+    // TODO: what about the type like:
+    //
+    // struct ptr_info {
+    //     unsigned int flags;
+    //     struct ptr_info_internal dropped_info;
+    //     struct ptr_info_internal set_info;
+    // };
+    //
+    // right now, it will generate to the following:
+    //
+    // struct ptr_info {
+    //     unsigned int flags;
+    //     struct ptr_info_internal {
+    //     } dropped_info;
+    //     struct ptr_info_internal {
+    //     } set_info;
+    // };
+    //
+    // But we should also hold the internal-structure infor.
+
     // get the token to create the structure
     // init all the member as unused state
 again:
@@ -648,6 +684,86 @@ out:
     *ret_symbol = symbol;
 
     return ret;
+}
+
+/*
+ * With typedef, the checker should first get the original type so we should
+ * mark the variable with the typedef type, therefore, the checker can get
+ * the corresponding type. In this case, we can reuse the sym_typedef as
+ * new type flag in object. For example. object->type = sym_typedef.
+ *
+ * So the routine will be like:
+ *  1. get new type from typedef.
+ *  2. get the object with typdef type.
+ *  3. parse the object and send it to the checker
+ *  4. in the checker, find the original type first and check it
+ */
+static int decode_typedef(struct scan_file_control *sfc)
+{
+    int sym = sym_dump;
+    struct object tmp_obj;
+    struct typedef_info_node *tin, *pos;
+    struct typedef_info *ti = NULL;
+
+    tin = malloc(sizeof(struct typedef_info_node));
+    BUG_ON(!tin, "malloc");
+
+    /*
+     * the pattern is:
+     *      typedef TYPE __ATTRIBUTE__ NEW_TYPE
+     *      - typedef struct { ... } NEW_TYPE
+     *      - typedef struct TYPE { ... } NEW_TYPE
+     * we already got the typedef symbol, so we can use the
+     * get_object() to compose the rest of symbols.
+     */
+    sym = get_object(sfc, &tmp_obj);
+    debug_object(&tmp_obj, "typedef tmp object");
+
+    /*
+     * Now, we have all the info in tmp_obj.
+     * The tmp_obj->id is the new type.
+     */
+
+    tin->new_type_symbol = tmp_obj.id;
+
+    // find the original type from the typede_info data.
+    // If we have it, insert the new type symbol into its list
+    // store the original type into info node
+
+    list_for_each (&sfc->typedef_info_head) {
+        ti = container_of(curr, struct typedef_info, node);
+
+        // we only care about the ptr, attr, and type info.
+        // TODO: we should assign the constant debug token to this.
+        tmp_obj.id = ti->orig_object.id;
+        if (cmp_object(&ti->orig_object, &tmp_obj)) {
+            goto insert_tin;
+        }
+    }
+
+    ti = malloc(sizeof(struct typedef_info));
+    list_init(&ti->head);
+    list_init(&ti->node);
+    copy_object(&ti->orig_object, &tmp_obj);
+
+    // insert and return back
+
+insert_tin:
+    list_for_each_entry (pos, &ti->head, node) {
+        if (cmp_token(pos->new_type_symbol, tin->new_type_symbol)) {
+            // already have the symbol
+            bad(sfc, "the symbol already existed");
+        }
+    }
+
+    // insert
+
+    // create the type info to token/object
+    // mark the new_type symbol?
+
+    // anon structure?
+
+    return sym;
 }
 
 static int decode_func_call(struct scan_file_control *sfc,
@@ -1236,6 +1352,7 @@ static void restore_function_state(struct scan_file_control *sfc)
     sfc->function = sfc->real_function;
 }
 
+// TODO: standardize the rule
 static void join_variable(struct variable *real, struct variable *tmp)
 {
     if (cmp_object(&tmp->object, &real->object)) {
