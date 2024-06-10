@@ -58,4 +58,8 @@
 #define max(l, r) ((l > r) ? l : r)
 #endif
 
+#define MAX_BUFFER_LEN 128
+#define MAX_NR_NAME 80
+#define MAX_NR_GENERATED_NAME (MAX_NR_NAME + 10)
+
 #endif /* __OSC_COMPILER_H__ */

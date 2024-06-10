@@ -43,7 +43,7 @@ static void osc_preprocessor(struct osc_data *data, struct file_info *fi)
 
 static void create_file(struct osc_data *restrict data, char *restrict argv)
 {
-    int name_start = 0;
+    int name_start = -1;
     struct file_info *fi = malloc(sizeof(struct file_info));
     BUG_ON(!fi, "malloc");
 
@@ -69,6 +69,9 @@ static void create_file(struct osc_data *restrict data, char *restrict argv)
         fi->generated_name[MAX_NR_GENERATED_NAME - 1] = '\0';
         osc_preprocessor(data, fi);
     }
+
+    pr_debug("fi->full_name:%s, fi->name:%s, fi->generated_name:%s\n",
+             fi->full_name, fi->name, fi->generated_name);
 
     list_init(&fi->node);
     list_init(&fi->func_head);

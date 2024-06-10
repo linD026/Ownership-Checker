@@ -1,4 +1,5 @@
 #include <osc/parser.h>
+#include <osc/fork.h>
 #include <osc/check_list.h>
 #include <osc/compiler.h>
 #include <osc/debug.h>
@@ -8,12 +9,6 @@
 
 // TODO: support union
 
-static struct function_state *fork_function_state(struct function *func);
-static void switch_function_state(struct scan_file_control *sfc,
-                                  struct function_state *new);
-static void fork_and_switch_function_state(struct scan_file_control *sfc);
-static void restore_function_state(struct scan_file_control *sfc);
-static void join_function_state(struct scan_file_control *sfc);
 static struct structure *compose_structure(struct scan_file_control *sfc,
                                            struct object *obj, int sym,
                                            struct symbol *symbol);
@@ -104,90 +99,6 @@ static int __put_current_scope(struct scan_file_control *sfc)
         pr_debug("put scope\n");  \
         __put_current_scope(sfc); \
     } while (0)
-
-static void object_init(struct object *object)
-{
-    object->storage_class = sym_dump;
-    object->type = sym_dump;
-    object->is_ptr = 0;
-    object->attr = 0;
-    object->struct_id = NULL;
-    object->id = NULL;
-}
-
-static int cmp_object(struct object *l, struct object *r)
-{
-    if (l->storage_class != r->storage_class)
-        return 0;
-    if (l->type != r->type)
-        return 0;
-    if (l->is_ptr != r->is_ptr)
-        return 0;
-    if (l->attr != r->attr)
-        return 0;
-    // TODO: We should improve this condition checkings...
-    if (l->struct_id && r->struct_id) {
-        if (!cmp_token(l->struct_id, r->struct_id))
-            return 0;
-    } else if ((l->struct_id && !r->struct_id) ||
-               (!l->struct_id && r->struct_id))
-        return 0;
-    if (!cmp_token(l->id, r->id))
-        return 0;
-    return 1;
-}
-
-static void copy_object(struct object *dst, struct object *src)
-{
-    *dst = *src;
-}
-
-static int get_attr_flag(int sym)
-{
-    switch (sym) {
-    case sym_attr_brw:
-        return ATTR_FLAGS_BRW;
-    case sym_attr_clone:
-        return ATTR_FLAGS_CLONE;
-    case sym_attr_mut:
-        return ATTR_FLAGS_MUT;
-    }
-    return 0;
-}
-
-static __allow_unused void raw_debug_object(struct object *obj)
-{
-#ifdef CONFIG_DEBUG
-    if (obj->storage_class != sym_dump)
-        print("%s ", token_name(obj->storage_class));
-    if (obj->type != sym_dump) {
-        print("%s ", token_name(obj->type));
-        if (obj->type == sym_struct)
-            print("%s ", obj->struct_id->name);
-    }
-    if (obj->attr & ATTR_FLAS_MASK) {
-        if (obj->attr & ATTR_FLAGS_BRW)
-            print("__brw ");
-        if (obj->attr & ATTR_FLAGS_CLONE)
-            print("__clone ");
-        if (obj->attr & ATTR_FLAGS_MUT)
-            print("__mut ");
-    }
-    if (obj->is_ptr)
-        print("*");
-    if (obj->id)
-        print("%s", obj->id->name);
-#endif /* CONFIG_DEBUG */
-}
-
-static void debug_object(struct object *obj, const char *note)
-{
-#ifdef CONFIG_DEBUG
-    print("[OBJECT] %s: ", note);
-    raw_debug_object(obj);
-    print(" \n");
-#endif /* CONFIG_DEBUG */
-}
 
 /*
  * The object type is:
@@ -315,154 +226,6 @@ static int get_object(struct scan_file_control *sfc, struct object *obj)
     debug_token(sfc, sym, symbol);
 
     return compose_object(sfc, obj, sym, symbol);
-}
-
-static void __record_ptr_info(struct ptr_info_internal *info,
-                              const char *buffer, unsigned long line,
-                              unsigned int offset)
-{
-    strncpy(info->buffer, buffer, MAX_BUFFER_LEN);
-    info->line = line;
-    /*
-     * We adapt the offset to the last symbol when we report the warning.
-     * See the bad_get_last_offset();
-     */
-    info->offset = offset;
-}
-
-static void record_ptr_info(struct scan_file_control *sfc,
-                            struct ptr_info_internal *info)
-{
-    __record_ptr_info(info, sfc->buffer, sfc->line, sfc->offset);
-}
-
-static void ptr_info_mkset(struct ptr_info *info)
-{
-    info->flags &= ~PTR_INFO_DROPPED;
-    info->flags |= PTR_INFO_SET;
-}
-
-static void ptr_info_mkdropped(struct ptr_info *info)
-{
-    info->flags |= PTR_INFO_DROPPED;
-}
-
-static void drop_variable(struct scan_file_control *sfc, struct variable *var)
-{
-    // TODO: don't just warn it
-    WARN_ON(!(var->ptr_info.flags & (PTR_INFO_SET | PTR_INFO_FUNC_ARG)),
-            "drop the unassigned ptr");
-    record_ptr_info(sfc, &var->ptr_info.dropped_info);
-    ptr_info_mkdropped(&var->ptr_info);
-    debug_ptr_info(&var->ptr_info.dropped_info, NULL);
-}
-
-static void set_variable(struct scan_file_control *sfc, struct variable *var)
-{
-#ifdef CONFIG_DEBUG
-    if (var->ptr_info.flags & PTR_INFO_DROPPED) {
-        pr_debug("variable %s; re-assigned after dropped\n",
-                 var->object.id->name);
-    }
-#endif
-    record_ptr_info(sfc, &var->ptr_info.set_info);
-    ptr_info_mkset(&var->ptr_info);
-    debug_ptr_info(&var->ptr_info.set_info, NULL);
-}
-
-static struct variable *var_alloc(void)
-{
-    struct variable *var = malloc(sizeof(struct variable));
-    BUG_ON(!var, "malloc");
-
-    var->ptr_info.flags = 0;
-    object_init(&var->object);
-    list_init(&var->struct_info.struct_head);
-    list_init(&var->struct_info.node);
-    list_init(&var->scope_node);
-    list_init(&var->struct_node);
-    list_init(&var->parameter_node);
-
-    return var;
-}
-
-static void copy_variable(struct variable *dst, struct variable *src)
-{
-    dst->ptr_info.flags = src->ptr_info.flags;
-    if (dst->ptr_info.flags & PTR_INFO_SET) {
-        __record_ptr_info(
-            &dst->ptr_info.set_info, src->ptr_info.set_info.buffer,
-            src->ptr_info.set_info.line, src->ptr_info.set_info.offset);
-    }
-    if (dst->ptr_info.flags & PTR_INFO_DROPPED) {
-        __record_ptr_info(
-            &dst->ptr_info.dropped_info, src->ptr_info.dropped_info.buffer,
-            src->ptr_info.dropped_info.line, src->ptr_info.dropped_info.offset);
-    }
-
-    copy_object(&dst->object, &src->object);
-}
-
-static void debug_variable(struct variable *var, const char *note)
-{
-#ifdef CONFIG_DEBUG
-    struct ptr_info *info = &var->ptr_info;
-    print("[VAR] ");
-    debug_object(&var->object, note);
-    if (info->flags & PTR_INFO_FUNC_ARG) {
-        print("[VAR] Is func parrameter\n");
-    }
-    if (info->flags & PTR_INFO_SET) {
-        print("[VAR] set at:%ld:%u\n", info->set_info.line,
-              info->set_info.offset);
-    }
-    if (info->flags & PTR_INFO_DROPPED) {
-        print("[VAR] dropped at:%ld:%u\n", info->dropped_info.line,
-              info->dropped_info.offset);
-    }
-#endif
-}
-
-#ifdef CONFIG_DEBUG
-static void debug_space_level(int nested_level)
-{
-    for (int i = 0; i < nested_level; i++)
-        print("    ");
-}
-
-static void raw_debug_structure(struct structure *structure, int nested_level)
-{
-    print("struct %s ", structure->object.struct_id->name);
-    print("{\n");
-    list_for_each (&structure->struct_head) {
-        struct variable *mem = container_of(curr, struct variable, struct_node);
-        debug_space_level(nested_level);
-        if (mem->object.type == sym_struct)
-            raw_debug_structure(&mem->struct_info, nested_level + 1);
-        else {
-            raw_debug_object(&mem->object);
-            print(";\n");
-        }
-    }
-
-    if (nested_level > 1)
-        debug_space_level(nested_level - 1);
-
-    if (structure->object.id) {
-        print("} %s;\n", structure->object.id->name);
-    } else {
-        print("};\n");
-    }
-}
-#endif
-
-static void debug_structure(struct structure *structure, const char *note)
-{
-#ifdef CONFIG_DEBUG
-    print("[STRUCT START]: %s\n", note);
-    raw_debug_structure(structure, 1);
-    print("[STRUCT END]\n");
-#endif /* CONFIG_DEBUG */
 }
 
 static void copy_structure(struct structure *dst, struct structure *src)
@@ -713,9 +476,11 @@ static int decode_typedef(struct scan_file_control *sfc)
      *      typedef TYPE __ATTRIBUTE__ NEW_TYPE
      *      - typedef struct { ... } NEW_TYPE
      *      - typedef struct TYPE { ... } NEW_TYPE
+     *      - typedef TYPE (...NEW_TYPE)( ... )
      * we already got the typedef symbol, so we can use the
      * get_object() to compose the rest of symbols.
      */
+    // TODO: support function pointer type
     sym = get_object(sfc, &tmp_obj);
     debug_object(&tmp_obj, "typedef tmp object");
 
@@ -730,6 +495,7 @@ static int decode_typedef(struct scan_file_control *sfc)
     // If we have it, insert the new type symbol into its list
     // store the original type into info node
 
+    // current_scope->typedef_info_head...
     list_for_each (&sfc->typedef_info_head) {
         ti = container_of(curr, struct typedef_info, node);
 
@@ -1161,6 +927,9 @@ static int decode_stmt(struct scan_file_control *sfc, struct symbol *symbol,
             } else {
                 debug_object(&tmp_obj, "decalaration only");
             }
+        } else if (sym == sym_typedef) {
+            sym = decode_typedef(sfc);
+            continue;
         } else if (sym == sym_if) {
             sym = decode_if(sfc, symbol, sym);
             // TODO: how to handle the peak?
@@ -1239,235 +1008,6 @@ static int decode_function_scope(struct scan_file_control *sfc)
     return decode_new_block(sfc, sym, symbol);
 }
 
-static void debug_function(struct function *function)
-{
-#ifdef CONFIG_DEBUG
-    print("[FUNC] ");
-    raw_debug_object(&function->object);
-    print(" (");
-    if (unlikely(list_empty(&function->parameter_head)))
-        print("void");
-    else {
-        list_for_each (&function->parameter_head) {
-            struct variable *param =
-                container_of(curr, struct variable, parameter_node);
-            raw_debug_object(&param->object);
-            if (curr->next != &function->parameter_head)
-                print(", ");
-        }
-    }
-    print(")");
-
-    // TODO: scope object
-    print("\n");
-#endif /* CONFIG_DEBUG */
-}
-
-/*
- * Before we entry the if scope, we should fork the current function state,
- * so that the subsequent scope (else if, else) can restore back and run the
- * previous state.
- *
- *      #1=@fork
- *      if (...) {
- *          #2
- *      } else {
- *          @restore=#1, #3=@fork=#1 (copy the #1)
- *          #3
- *      }
- *
- *      @join #1, #2, #3
- */
-static struct function_state *fork_function_state(struct function *func)
-{
-    struct scope *scope = NULL;
-    struct function *dst, *src = func;
-    struct function_state *fs = malloc(sizeof(struct function_state));
-
-    BUG_ON(!fs, "malloc");
-
-    pr_debug("fork scope start\n");
-    debug_function(src);
-
-    fs->id = src->nr_state++;
-    dst = &fs->function;
-    list_init(&dst->func_scope_head);
-    copy_object(&dst->object, &src->object);
-    list_init(&dst->parameter_head);
-    dst->nr_state = -1;
-    list_init(&dst->state_head);
-    list_init(&dst->node);
-
-    list_for_each (&src->parameter_head) {
-        struct variable *param =
-            container_of(curr, struct variable, parameter_node);
-        struct variable *new_var = var_alloc();
-
-        copy_variable(new_var, param);
-        list_add_tail(&new_var->parameter_node, &dst->parameter_head);
-        debug_variable(new_var, "fork param");
-    }
-
-    list_for_each_entry (scope, &src->func_scope_head, func_scope_node) {
-        struct variable *var = NULL;
-        struct scope *new_scope = malloc(sizeof(struct scope));
-        BUG_ON(!scope, "malloc");
-
-        list_init(&new_scope->scope_var_head);
-        list_init(&new_scope->func_scope_node);
-
-        pr_debug("fork scope\n");
-
-        for_each_var (scope, var) {
-            struct variable *new_var = var_alloc();
-
-            copy_variable(new_var, var);
-            list_add_tail(&new_var->scope_node, &new_scope->scope_var_head);
-            debug_variable(new_var, "fork var");
-        }
-
-        list_add_tail(&new_scope->func_scope_node, &dst->func_scope_head);
-    }
-
-    list_add_tail(&fs->state_node, &src->state_head);
-
-    pr_debug("fork scope end\n");
-
-    return fs;
-}
-
-static void switch_function_state(struct scan_file_control *sfc,
-                                  struct function_state *new)
-{
-    sfc->function = &new->function;
-}
-
-static void fork_and_switch_function_state(struct scan_file_control *sfc)
-{
-    switch_function_state(sfc, fork_function_state(sfc->real_function));
-}
-
-static void restore_function_state(struct scan_file_control *sfc)
-{
-    sfc->function = sfc->real_function;
-}
-
-// TODO: standardize the rule
-static void join_variable(struct variable *real, struct variable *tmp)
-{
-    if (cmp_object(&tmp->object, &real->object)) {
-        if (tmp->ptr_info.flags & PTR_INFO_DROPPED &&
-            real->ptr_info.flags & (PTR_INFO_SET | PTR_INFO_FUNC_ARG)) {
-            pr_debug("drop the variable\n");
-            debug_variable(tmp, "dropped var");
-            __record_ptr_info(&real->ptr_info.dropped_info,
-                              tmp->ptr_info.dropped_info.buffer,
-                              tmp->ptr_info.dropped_info.line,
-                              tmp->ptr_info.dropped_info.offset);
-            ptr_info_mkdropped(&real->ptr_info);
-            debug_ptr_info(&real->ptr_info.dropped_info, NULL);
-        }
-        if (tmp->ptr_info.flags & (PTR_INFO_SET | PTR_INFO_FUNC_ARG)) {
-            if (real->ptr_info.flags & (PTR_INFO_SET | PTR_INFO_FUNC_ARG)) {
-                /* Check the real is set again. */
-                if (tmp->ptr_info.set_info.line !=
-                    real->ptr_info.set_info.line) {
-                    __record_ptr_info(&real->ptr_info.set_info,
-                                      tmp->ptr_info.set_info.buffer,
-                                      tmp->ptr_info.set_info.line,
-                                      tmp->ptr_info.set_info.offset);
-                    debug_variable(tmp, "set the real again (diff line)");
-                    debug_ptr_info(&real->ptr_info.set_info, NULL);
-                } else if (tmp->ptr_info.set_info.offset !=
-                           real->ptr_info.set_info.offset) {
-                    real->ptr_info.set_info.offset =
-                        tmp->ptr_info.set_info.offset;
-                    debug_variable(
-                        tmp, "set the real again (same line, diff offset)");
-                    debug_ptr_info(&real->ptr_info.set_info, NULL);
-                } else {
-                    // TODO: fixme
-                    // TODO: should we store the ptr info as stack?
-                    // we can show the warning like:
-                    // the object might be released at following ...
-                    //pr_debug(
-                    //    "both are set, but the line/offset have problem\n");
-                    //debug_ptr_info(&real->ptr_info.set_info, NULL);
-                    //debug_ptr_info(&real->ptr_info.set_info, NULL);
-                }
-            } else if (real->ptr_info.flags & PTR_INFO_DROPPED) {
-                __record_ptr_info(
-                    &real->ptr_info.set_info, tmp->ptr_info.set_info.buffer,
-                    tmp->ptr_info.set_info.line, tmp->ptr_info.set_info.offset);
-                ptr_info_mkset(&real->ptr_info);
-                debug_variable(tmp, "set the dropped var");
-                debug_ptr_info(&real->ptr_info.set_info, NULL);
-            }
-        }
-    } else {
-        WARN_ON(1, "not the same variable");
-        debug_variable(tmp, "tmp");
-        debug_variable(real, "real");
-    }
-}
-
-static void join_single_function_state(struct function *func,
-                                       struct function_state *state)
-{
-    struct scope *scope = NULL;
-    struct scope *tmp_scope = NULL;
-    struct variable *tmp_var = NULL;
-
-    debug_function(&state->function);
-
-    tmp_var = list_first_entry(&state->function.parameter_head, struct variable,
-                               parameter_node);
-    list_for_each (&func->parameter_head) {
-        struct variable *param =
-            container_of(curr, struct variable, parameter_node);
-        debug_variable(param, "join param");
-        debug_variable(tmp_var, "join tmp_var");
-        join_variable(param, tmp_var);
-        tmp_var = list_next_entry(tmp_var, parameter_node);
-    }
-
-    tmp_scope = list_first_entry(&state->function.func_scope_head, struct scope,
-                                 func_scope_node);
-    list_for_each_entry (scope, &func->func_scope_head, func_scope_node) {
-        struct variable *var = NULL;
-
-        tmp_var = list_first_entry(&scope->scope_var_head, struct variable,
-                                   scope_node);
-        for_each_var (scope, var) {
-            debug_variable(var, "join var");
-            debug_variable(tmp_var, "join tmp_var");
-            join_variable(var, tmp_var);
-            tmp_var = list_next_entry(tmp_var, scope_node);
-        }
-        tmp_scope = list_next_entry(tmp_scope, func_scope_node);
-    }
-}
-
-static void join_function_state(struct scan_file_control *sfc)
-{
-    pr_debug("Join the function state start\n");
-
-    struct function *func = sfc->function;
-    list_for_each_safe (&func->state_head) {
-        struct function_state *tmp =
-            container_of(curr, struct function_state, state_node);
-        BUG_ON(!cmp_object(&tmp->function.object, &func->object),
-               "not the same function");
-        list_del(&tmp->state_node);
-        pr_debug("The start of join the new state\n");
-        join_single_function_state(func, tmp);
-        pr_debug("The end of join the new state\n");
-        func->nr_state--;
-    }
-
-    pr_debug("Join the function state end\n");
-}
-
 /* file scope related functions */
 
 static struct function *search_function(struct file_info *fi,
@@ -1519,6 +1059,8 @@ again:
     sym = get_object(sfc, &obj);
     if (sym == -ENODATA)
         return -ENODATA;
+
+        // TODO: global var?
 
         /*
      * If the sym is sym_struct, this means that the function

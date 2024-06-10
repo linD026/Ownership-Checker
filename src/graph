@@ -1,3 +1,5 @@
+# deprecated
+
 object relationship graph
 
 ---
@@ -26,4 +28,22 @@ file_info->func_head
  
 NOTE:
 - #[attribute]
-- struture(member)                   
+- struture(member)
+
+---
+
+the file organization
+
+src dir
+- token.c
+    - parse the raw word in the text file and generate the token
+- parser.c
+    - parse the basic C language
+- debug.c
+    - print the human readable debug info
+- fork.c
+    - store, fork, and join the function state which also includes the var state
+- check_ownership.c
+    - check the attribute of pointer is violated the rule
+- osc.c
+    - parse the input parameters and create the basic file info

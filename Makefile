@@ -18,6 +18,9 @@ endif
 
 SRC:=src/osc.c
 SRC+=src/parser.c
+SRC+=src/object_ptr.c
+SRC+=src/fork.c
+SRC+=src/debug.c
 SRC+=src/token.c
 SRC+=src/check_ownership.c
 #SRC+=src/object_type.c

@@ -3,6 +3,7 @@
 #include <osc/debug.h>
 #include <osc/parser.h>
 #include <string.h>
+#include <errno.h>
 
 /*
  * We don't check the terminal symbol '\0', since we should make sure that
@@ -225,6 +226,8 @@ static int __check_symbol_table(struct scan_file_control *sfc,
     int sym = sym_dump;
 
     for (int i = table_start; i < ARRAY_SIZE(sym_table); i++) {
+        // TODO: fix the space error like: unsigned  long
+        // use: strtok + strstr combo
         int tmp = check_symbol(sfc, &sym_table[i]);
         if (tmp) {
             *id = &sym_table[i];
