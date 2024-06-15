@@ -125,3 +125,67 @@ void copy_variable(struct variable *dst, struct variable *src)
 
     copy_object(&dst->object, &src->object);
 }
+
+/* Structure */
+
+void copy_structure(struct structure *dst, struct structure *src)
+{
+    copy_object(&dst->object, &src->object);
+
+    list_for_each (&src->struct_head) {
+        struct variable *src_mem =
+            container_of(curr, struct variable, struct_node);
+        struct variable *dst_var = var_alloc();
+
+        if (src_mem->object.type == sym_struct)
+            copy_structure(&dst_var->struct_info, &src_mem->struct_info);
+        else
+            copy_object(&dst_var->object, &src_mem->object);
+        list_add_tail(&dst_var->struct_node, &dst->struct_head);
+    }
+}
+
+/* @obj should be the id */
+struct structure *search_structure(struct scan_file_control *sfc,
+                                   struct object *obj)
+{
+    list_for_each (&sfc->fi->struct_head) {
+        struct structure *tmp = container_of(curr, struct structure, node);
+        if (cmp_token(obj->struct_id, tmp->object.struct_id))
+            return tmp;
+    }
+
+    bad(sfc, "undefined structure type");
+    return NULL;
+}
+
+void set_struct_member(struct scan_file_control *sfc, struct structure *s,
+                       struct object *obj)
+{
+    list_for_each (&s->struct_head) {
+        struct variable *mem = container_of(curr, struct variable, struct_node);
+
+        if (cmp_token(mem->object.id, obj->id)) {
+            set_variable(sfc, mem);
+            return;
+        }
+    }
+
+    bad(sfc, "undefined structure member");
+}
+
+void drop_struct_member(struct scan_file_control *sfc, struct structure *s,
+                        struct object *obj)
+{
+    list_for_each (&s->struct_head) {
+        struct variable *mem = container_of(curr, struct variable, struct_node);
+
+        if (cmp_token(mem->object.id, obj->id)) {
+            drop_variable(sfc, mem);
+            return;
+        }
+    }
+
+    bad(sfc, "undefined structure member");
+    debug_structure(s, "drop struct member");
+}

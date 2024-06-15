@@ -19,7 +19,6 @@ __allow_unused void __debug_token(struct scan_file_control *sfc, int sym,
 
 static __allow_unused void raw_debug_object(struct object *obj)
 {
-#ifdef CONFIG_DEBUG
     if (obj->storage_class != sym_dump)
         print("%s ", token_name(obj->storage_class));
     if (obj->type != sym_dump) {
@@ -39,7 +38,6 @@ static __allow_unused void raw_debug_object(struct object *obj)
         print("*");
     if (obj->id)
         print("%s", obj->id->name);
-#endif /* CONFIG_DEBUG */
 }
 
 void debug_object(struct object *obj, const char *note)
@@ -58,7 +56,7 @@ void debug_variable(struct variable *var, const char *note)
     print("[VAR] ");
     debug_object(&var->object, note);
     if (info->flags & PTR_INFO_FUNC_ARG) {
-        print("[VAR] Is func parrameter\n");
+        print("[VAR] is func parrameter\n");
     }
     if (info->flags & PTR_INFO_SET) {
         print("[VAR] set at:%ld:%u\n", info->set_info.line,
@@ -71,14 +69,14 @@ void debug_variable(struct variable *var, const char *note)
 #endif
 }
 
-#ifdef CONFIG_DEBUG
-static void debug_space_level(int nested_level)
+static __allow_unused void debug_space_level(int nested_level)
 {
     for (int i = 0; i < nested_level; i++)
         print("    ");
 }
 
-static void raw_debug_structure(struct structure *structure, int nested_level)
+static __allow_unused void raw_debug_structure(struct structure *structure,
+                                               int nested_level)
 {
     print("struct %s ", structure->object.struct_id->name);
     print("{\n");
@@ -102,7 +100,6 @@ static void raw_debug_structure(struct structure *structure, int nested_level)
         print("};\n");
     }
 }
-#endif
 
 void debug_structure(struct structure *structure, const char *note)
 {

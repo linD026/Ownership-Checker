@@ -70,4 +70,17 @@ void set_variable(struct scan_file_control *sfc, struct variable *var);
 struct variable *var_alloc(void);
 void copy_variable(struct variable *dst, struct variable *src);
 
+/* structure */
+
+struct structure;
+
+void copy_structure(struct structure *dst, struct structure *src);
+struct structure *search_structure(struct scan_file_control *sfc,
+                                   struct object *obj);
+
+void set_struct_member(struct scan_file_control *sfc, struct structure *s,
+                       struct object *obj);
+void drop_struct_member(struct scan_file_control *sfc, struct structure *s,
+                        struct object *obj);
+
 #endif /* __OSC_OBJECT_PTR_H__ */

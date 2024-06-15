@@ -8,7 +8,7 @@ CFLAGS:=-g
 CFLAGS+=-std=c11
 CFLAGS+=-Wall
 CFLAGS+=-O1
-CFLAGS+=-rdynamic
+#CFLAGS+=-rdynamic
 
 DEBUG_FLAGS=
 ifneq ($(strip $(verbose)),)
@@ -17,11 +17,11 @@ CFLAGS+=$(DEBUG_FLAGS)
 endif
 
 SRC:=src/osc.c
-SRC+=src/parser.c
 SRC+=src/object_ptr.c
 SRC+=src/fork.c
 SRC+=src/debug.c
 SRC+=src/token.c
+SRC+=src/parser.c
 SRC+=src/check_ownership.c
 #SRC+=src/object_type.c
 

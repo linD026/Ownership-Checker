@@ -2,6 +2,7 @@
 #include <osc/fork.h>
 #include <osc/check_list.h>
 #include <osc/compiler.h>
+#include <osc/object_ptr.h>
 #include <osc/debug.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -158,9 +159,13 @@ static int compose_object(struct scan_file_control *sfc, struct object *obj,
                 obj->struct_id = symbol;
                 sym = get_token(sfc, &symbol);
                 debug_token(sfc, sym, symbol);
-            } else
+            } else {
                 /* type 2 */
+                // TODO: support determining the anon symbol for debugging
+                // Then, we can do someting like this during the printing:
+                // "struct { } name" instead of "struct anon... { } name"
                 obj->struct_id = new_anon_symbol();
+            }
 
             if (sym == sym_left_brace) {
                 /* type 1 */
@@ -228,37 +233,6 @@ static int get_object(struct scan_file_control *sfc, struct object *obj)
     return compose_object(sfc, obj, sym, symbol);
 }
 
-static void copy_structure(struct structure *dst, struct structure *src)
-{
-    copy_object(&dst->object, &src->object);
-
-    list_for_each (&src->struct_head) {
-        struct variable *src_mem =
-            container_of(curr, struct variable, struct_node);
-        struct variable *dst_var = var_alloc();
-
-        if (src_mem->object.type == sym_struct)
-            copy_structure(&dst_var->struct_info, &src_mem->struct_info);
-        else
-            copy_object(&dst_var->object, &src_mem->object);
-        list_add_tail(&dst_var->struct_node, &dst->struct_head);
-    }
-}
-
-/* @obj should be the id */
-static struct structure *search_structure(struct scan_file_control *sfc,
-                                          struct object *obj)
-{
-    list_for_each (&sfc->fi->struct_head) {
-        struct structure *tmp = container_of(curr, struct structure, node);
-        if (cmp_token(obj->struct_id, tmp->object.struct_id))
-            return tmp;
-    }
-
-    bad(sfc, "undefined structure type");
-    return NULL;
-}
-
 /*
  * For the structure, we use @variable as member isntead of using
  * @object, so that we can easly create the new variable by duplicating
@@ -276,55 +250,75 @@ static struct structure *compose_structure(struct scan_file_control *sfc,
     struct structure *s = malloc(sizeof(struct structure));
     BUG_ON(!s, "malloc");
 
+    /*
+     * We have got the structure id and the left brace symbol, lets
+     * just copy the id and parse the member.
+     */
+
     copy_object(&s->object, obj);
     list_init(&s->struct_head);
     // TODO: insert to the scope meta data (or internal struct),
     list_add_tail(&s->node, &sfc->fi->struct_head);
-
-    // TODO: what about the type like:
-    //
-    // struct ptr_info {
-    //     unsigned int flags;
-    //     struct ptr_info_internal dropped_info;
-    //     struct ptr_info_internal set_info;
-    // };
-    //
-    // right now, it will generate to the following:
-    //
-    // struct ptr_info {
-    //     unsigned int flags;
-    //     struct ptr_info_internal {
-    //     } dropped_info;
-    //     struct ptr_info_internal {
-    //     } set_info;
-    // };
-    //
-    // But we should also hold the internal-structure infor.
 
     // get the token to create the structure
     // init all the member as unused state
 again:
     mem = var_alloc();
     sym = get_object(sfc, &mem->object);
+    /* Check is it reach the end of structure member. */
     if (sym != sym_right_brace) {
+        /*
+         * New member.
+         *
+         * We have three types of member:
+         * 
+         *     1. TYPE name
+         *     2. TYPE struct_id name
+         *     3. TYPE struct_id { } name
+         *     4. TYPE { } name
+         *
+         * For type 1 and 2, the next symbol will be ;, however, type 3 and 4
+         * will get the name of the variable.
+         */
         WARN_ON(sym != sym_id && sym != sym_struct, "unexpect symbol:%d", sym);
+        /*
+         * we get sym_id from type 3, 4 and get sym_seq_point from type 1, 2. 
+         */
         sym = get_token(sfc, &symbol);
         debug_token(sfc, sym, symbol);
         if (sym == sym_id) {
-            if (mem->object.type == sym_struct) {
-                struct structure *tmp = search_structure(sfc, &mem->object);
-                BUG_ON(!tmp, "not found the structure");
-                copy_structure(&mem->struct_info, tmp);
-            }
+            /* type 3, 4 */
+            struct structure *tmp = search_structure(sfc, &mem->object);
+            BUG_ON(!tmp, "not found the structure");
+
+            /*
+             * we duplicate the struct info from the real definition
+             * to member.
+             */
+            copy_structure(&mem->struct_info, tmp);
+
             /*
              * copy_structure() will clean the mem->object.id,
              * so write the id here.
              */
             mem->object.id = symbol;
-            debug_object(&mem->object, "the structure member");
+            debug_structure(&mem->struct_info,
+                            "3. TYPE struct_id { } name or 4. TYPE { } name");
+
+            /* we should only get the ; symbol here. */
             sym = get_token(sfc, &symbol);
             debug_token(sfc, sym, symbol);
+        } else if (sym == sym_seq_point && mem->object.type == sym_struct) {
+            /* type 2 */
+            struct structure *tmp = search_structure(sfc, &mem->object);
+            BUG_ON(!tmp, "not found the structure");
+            copy_structure(&mem->struct_info, tmp);
+            debug_structure(&mem->struct_info, "2. TYPE struct_id name");
         }
+#ifdef CONFIG_DEBUG
+        else if (sym == sym_seq_point)
+            debug_object(&mem->object, "1. TYPE name");
+#endif
         if (sym == sym_seq_point) {
             list_add_tail(&mem->struct_node, &s->struct_head);
             goto again;
@@ -342,37 +336,6 @@ again:
         syntax_error(sfc);
 
     return s;
-}
-
-static void set_struct_member(struct scan_file_control *sfc,
-                              struct structure *s, struct object *obj)
-{
-    list_for_each (&s->struct_head) {
-        struct variable *mem = container_of(curr, struct variable, struct_node);
-
-        if (cmp_token(mem->object.id, obj->id)) {
-            set_variable(sfc, mem);
-            return;
-        }
-    }
-
-    bad(sfc, "undefined structure member");
-}
-
-static void drop_struct_member(struct scan_file_control *sfc,
-                               struct structure *s, struct object *obj)
-{
-    list_for_each (&s->struct_head) {
-        struct variable *mem = container_of(curr, struct variable, struct_node);
-
-        if (cmp_token(mem->object.id, obj->id)) {
-            drop_variable(sfc, mem);
-            return;
-        }
-    }
-
-    bad(sfc, "undefined structure member");
-    debug_structure(s, "drop struct member");
 }
 
 /* function scope related functions */
