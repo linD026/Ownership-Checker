@@ -101,6 +101,29 @@ static int __put_current_scope(struct scan_file_control *sfc)
         __put_current_scope(sfc); \
     } while (0)
 
+static int decode_typedef(struct scan_file_control *sfc);
+
+static struct typedef_info *search_typedef_info(struct scan_file_control *sfc,
+                                                struct symbol *external_type)
+{
+    struct typedef_info *ti = NULL;
+    struct typedef_info_node *pos = NULL;
+
+    list_for_each (&sfc->typedef_info_head) {
+        ti = container_of(curr, struct typedef_info, node);
+
+        list_for_each_entry (pos, &ti->head, node) {
+            if (cmp_token(pos->new_type_symbol, external_type)) {
+                return ti;
+            }
+        }
+    }
+
+    bad(sfc, "cannot find the new type from typedef data");
+
+    return NULL;
+}
+
 /*
  * The object type is:
  * - type __attribute__ ptr id
@@ -109,6 +132,12 @@ static int compose_object(struct scan_file_control *sfc, struct object *obj,
                           int sym, struct symbol *symbol)
 {
     object_init(obj);
+
+    if (sym == sym_typedef) {
+        sym = decode_typedef(sfc);
+        sym = get_token(sfc, &symbol);
+        debug_token(sfc, sym, symbol);
+    }
 
     /* variable declaration */
     if (range_in_sym(storage_class, sym)) {
@@ -122,13 +151,10 @@ static int compose_object(struct scan_file_control *sfc, struct object *obj,
         debug_token(sfc, sym, symbol);
     }
 
-    /* the typedef case */
-    if (sym == sym_id && 0) {
-        // search orig type
-
-        // struct typedef_info *ti = search_typedef_info(sfc, obj->id);
-        // assigned to the old type
-
+    /* The typedef case */
+    if (sym == sym_id) {
+        struct typedef_info *ti = search_typedef_info(sfc, symbol);
+        copy_object(obj, &ti->orig_object);
         sym = get_token(sfc, &symbol);
         debug_token(sfc, sym, symbol);
     }
@@ -434,6 +460,9 @@ static int decode_typedef(struct scan_file_control *sfc)
     tin = malloc(sizeof(struct typedef_info_node));
     BUG_ON(!tin, "malloc");
 
+    list_init(&tin->node);
+    tin->new_type_symbol = NULL;
+
     /*
      * the pattern is:
      *      typedef TYPE __ATTRIBUTE__ NEW_TYPE
@@ -445,14 +474,19 @@ static int decode_typedef(struct scan_file_control *sfc)
      */
     // TODO: support function pointer type
     sym = get_object(sfc, &tmp_obj);
-    debug_object(&tmp_obj, "typedef tmp object");
+    debug_object(&tmp_obj, "typedef: get all the info we need");
 
     /*
      * Now, we have all the info in tmp_obj.
+     * The tmp_obj->type is the orig type.
      * The tmp_obj->id is the new type.
+     *
+     * we first store the new type symbol into tin then clean
+     * up this in the tmp_obj.
      */
 
     tin->new_type_symbol = tmp_obj.id;
+    tmp_obj.id = NULL;
 
     // find the original type from the typede_info data.
     // If we have it, insert the new type symbol into its list
@@ -466,31 +500,36 @@ static int decode_typedef(struct scan_file_control *sfc)
         // TODO: we should assign the constant debug token to this.
         tmp_obj.id = ti->orig_object.id;
         if (cmp_object(&ti->orig_object, &tmp_obj)) {
+            list_for_each_entry (pos, &ti->head, node) {
+                if (cmp_token(pos->new_type_symbol, tin->new_type_symbol)) {
+                    // already have the symbol
+                    bad(sfc, "the symbol already existed");
+                }
+            }
             goto insert_tin;
         }
     }
 
+    /* New type info. */
+
     ti = malloc(sizeof(struct typedef_info));
+    BUG_ON(!ti, "typedef_info allocation failed");
+
     list_init(&ti->head);
     list_init(&ti->node);
+    tmp_obj.id = NULL;
     copy_object(&ti->orig_object, &tmp_obj);
+    debug_object(&ti->orig_object, "typedef new type_info->orig_object");
 
-    // insert and return back
+    /* insert and return back */
+    list_add_tail(&ti->node, &sfc->typedef_info_head);
 
 insert_tin:
-    list_for_each_entry (pos, &ti->head, node) {
-        if (cmp_token(pos->new_type_symbol, tin->new_type_symbol)) {
-            // already have the symbol
-            bad(sfc, "the symbol already existed");
-        }
-    }
-
     // insert
-
-    // create the type info to token/object
-    // mark the new_type symbol?
-
+    list_add_tail(&tin->node, &ti->head);
     // anon structure?
+
+    // TODO: clean up in the sfc
 
     return sym;
 }
@@ -1023,8 +1062,6 @@ again:
     if (sym == -ENODATA)
         return -ENODATA;
 
-        // TODO: global var?
-
         /*
      * If the sym is sym_struct, this means that the function
      * might be return type is struct.
@@ -1043,6 +1080,8 @@ again:
      * Skip the seq_point symbol.
      * We have to handle this outside of compose functions.
      */
+    if (sym == sym_seq_point)
+        goto again;
     sym = get_token(sfc, &buffer);
     debug_token(sfc, sym, buffer);
     if (sym == sym_seq_point)
@@ -1133,6 +1172,7 @@ int parser(struct file_info *fi)
      *   sfc->name
      */
     list_init(&sfc.peak_head);
+    list_init(&sfc.typedef_info_head);
     strncpy(sfc.name, fi->generated_name, MAX_NR_GENERATED_NAME);
     fi->file = fopen(fi->generated_name, "r");
     BUG_ON(!fi->file, "fopen:%s", fi->generated_name);
