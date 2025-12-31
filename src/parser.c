@@ -119,7 +119,10 @@ static struct typedef_info *search_typedef_info(struct scan_file_control *sfc,
         }
     }
 
-    bad(sfc, "cannot find the new type from typedef data");
+    /*
+     * Cannot find the new type from typedef data.
+     * This is not the variable.
+     */
 
     return NULL;
 }
@@ -154,9 +157,11 @@ static int compose_object(struct scan_file_control *sfc, struct object *obj,
     /* The typedef case */
     if (sym == sym_id) {
         struct typedef_info *ti = search_typedef_info(sfc, symbol);
-        copy_object(obj, &ti->orig_object);
-        sym = get_token(sfc, &symbol);
-        debug_token(sfc, sym, symbol);
+        if (ti) {
+            copy_object(obj, &ti->orig_object);
+            sym = get_token(sfc, &symbol);
+            debug_token(sfc, sym, symbol);
+        }
     }
 
     if (range_in_sym(type, sym)) {
