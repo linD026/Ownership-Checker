@@ -143,6 +143,11 @@ static void ast_dump_indent(FILE *out, int indent)
         fprintf(out, "    ");
 }
 
+/**
+ * ast_dump_type - Format and emit an AST type descriptor
+ * @type: Semantic AST type node
+ * @out: Target output stream
+ */
 void ast_dump_type(struct ast_type *type, FILE *out)
 {
     struct ast_decl *member = NULL;
@@ -217,6 +222,12 @@ void ast_dump_type(struct ast_type *type, FILE *out)
     }
 }
 
+/**
+ * ast_dump_expr - Recursively pretty-print an AST expression tree
+ * @expr: Root expression node
+ * @out: Target output stream
+ * @indent: Current indentation nesting level
+ */
 void ast_dump_expr(struct ast_expr *expr, FILE *out, int indent)
 {
     struct ast_generic_assoc *assoc = NULL;
@@ -326,6 +337,12 @@ void ast_dump_expr(struct ast_expr *expr, FILE *out, int indent)
     }
 }
 
+/**
+ * ast_dump_stmt - Recursively pretty-print an AST statement
+ * @stmt: Target statement node
+ * @out: Target output stream
+ * @indent: Current indentation nesting level
+ */
 void ast_dump_stmt(struct ast_stmt *stmt, FILE *out, int indent)
 {
     struct ast_stmt *child = NULL;
@@ -468,6 +485,12 @@ void ast_dump_stmt(struct ast_stmt *stmt, FILE *out, int indent)
     }
 }
 
+/**
+ * ast_dump_decl - Format and emit an AST declaration or function definition
+ * @decl: Target declaration node
+ * @out: Target output stream
+ * @indent: Current indentation nesting level
+ */
 void ast_dump_decl(struct ast_decl *decl, FILE *out, int indent)
 {
     if (!decl || !out)
@@ -503,6 +526,11 @@ void ast_dump_decl(struct ast_decl *decl, FILE *out, int indent)
     }
 }
 
+/**
+ * ast_dump_translation_unit - Emit textual AST dump for an entire translation unit
+ * @tu: Target translation unit
+ * @out: Target output stream
+ */
 void ast_dump_translation_unit(struct ast_translation_unit *tu, FILE *out)
 {
     struct ast_decl *decl = NULL;

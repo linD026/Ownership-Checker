@@ -5,6 +5,14 @@
 #include <osc/parser.h>
 #include <string.h>
 
+/**
+ * ast_new_type - Allocate a new semantic AST type node in the context arena
+ * @ctx: Active compilation context
+ * @base_type: Base token kind (e.g. sym_int, sym_struct)
+ * @span: Source coordinates span
+ *
+ * Return: Pointer to zero-initialized struct ast_type.
+ */
 struct ast_type *ast_new_type(struct osc_context *ctx, int base_type,
                               struct osc_span span)
 {
@@ -24,6 +32,15 @@ struct ast_type *ast_new_type(struct osc_context *ctx, int base_type,
     return type;
 }
 
+/**
+ * ast_new_decl - Allocate a new AST declaration node
+ * @ctx: Active compilation context
+ * @type: Semantic type descriptor
+ * @id: Identifier symbol pointer (or NULL for abstract)
+ * @span: Source coordinates span
+ *
+ * Return: Pointer to zero-initialized struct ast_decl.
+ */
 struct ast_decl *ast_new_decl(struct osc_context *ctx, struct ast_type *type,
                               struct symbol *id, struct osc_span span)
 {
@@ -43,6 +60,14 @@ struct ast_decl *ast_new_decl(struct osc_context *ctx, struct ast_type *type,
     return decl;
 }
 
+/**
+ * ast_new_expr - Allocate a new AST expression node
+ * @ctx: Active compilation context
+ * @kind: Expression node category
+ * @span: Source coordinates span
+ *
+ * Return: Pointer to zero-initialized struct ast_expr.
+ */
 struct ast_expr *ast_new_expr(struct osc_context *ctx, enum ast_expr_kind kind,
                               struct osc_span span)
 {
@@ -64,6 +89,14 @@ struct ast_expr *ast_new_expr(struct osc_context *ctx, enum ast_expr_kind kind,
     return expr;
 }
 
+/**
+ * ast_new_stmt - Allocate a new AST statement node
+ * @ctx: Active compilation context
+ * @kind: Statement node category
+ * @span: Source coordinates span
+ *
+ * Return: Pointer to zero-initialized struct ast_stmt.
+ */
 struct ast_stmt *ast_new_stmt(struct osc_context *ctx, enum ast_stmt_kind kind,
                               struct osc_span span)
 {
@@ -87,6 +120,12 @@ struct ast_stmt *ast_new_stmt(struct osc_context *ctx, enum ast_stmt_kind kind,
     return stmt;
 }
 
+/**
+ * ast_new_translation_unit - Allocate a top-level translation unit container
+ * @ctx: Active compilation context
+ *
+ * Return: Pointer to initialized struct ast_translation_unit.
+ */
 struct ast_translation_unit *ast_new_translation_unit(struct osc_context *ctx)
 {
     struct ast_translation_unit *tu = NULL;
@@ -103,6 +142,12 @@ struct ast_translation_unit *ast_new_translation_unit(struct osc_context *ctx)
     return tu;
 }
 
+/**
+ * is_type_token - Check if a token begins a C type specifier or qualifier
+ * @sym: Token symbol ID
+ *
+ * Return: True if token can start a type declaration, false otherwise.
+ */
 static bool is_type_token(int sym)
 {
     if (range_in_sym(type, sym))
@@ -120,6 +165,12 @@ static bool is_type_token(int sym)
     return false;
 }
 
+/**
+ * get_infix_precedence - Map token symbol to Pratt parser infix precedence
+ * @sym: Operator token symbol ID
+ *
+ * Return: Corresponding enum expr_precedence level.
+ */
 static enum expr_precedence get_infix_precedence(int sym)
 {
     switch (sym) {
@@ -169,9 +220,19 @@ static enum expr_precedence get_infix_precedence(int sym)
     }
 }
 
+/* Forward declaration */
 struct list_head *parse_decl_list(struct token_stream *ts,
                                   struct list_head *out_list);
 
+/**
+ * parse_type - Parse C11 type specifiers, qualifiers, structs, and unions
+ * @ts: Active token stream
+ *
+ * Supports anonymous structs/unions, C11 _Atomic specifiers and qualifiers,
+ * and pointer indirection with OSC ownership attributes (__mut, __brw).
+ *
+ * Return: Pointer to parsed struct ast_type.
+ */
 struct ast_type *parse_type(struct token_stream *ts)
 {
     struct ast_type *type = NULL;
@@ -315,6 +376,12 @@ struct ast_type *parse_type(struct token_stream *ts)
     return type;
 }
 
+/**
+ * parse_gnu_attribute_cleanup - Parse __attribute__((cleanup(func)))
+ * @ts: Active token stream
+ *
+ * Return: Cleanup function identifier symbol if parsed, NULL otherwise.
+ */
 static struct symbol *parse_gnu_attribute_cleanup(struct token_stream *ts)
 {
     struct osc_token *tok = NULL;
@@ -365,6 +432,15 @@ static struct symbol *parse_gnu_attribute_cleanup(struct token_stream *ts)
     return cleanup_fn;
 }
 
+/**
+ * parse_param_decl - Parse a single function parameter declaration
+ * @ts: Active token stream
+ *
+ * Distinct from comma-separated declarator lists so commas do not
+ * conflate parameter boundaries.
+ *
+ * Return: Pointer to parsed parameter struct ast_decl.
+ */
 static struct ast_decl *parse_param_decl(struct token_stream *ts)
 {
     struct ast_decl *decl = NULL;
@@ -457,6 +533,16 @@ static struct ast_decl *parse_param_decl(struct token_stream *ts)
     return decl;
 }
 
+/**
+ * parse_decl_list - Parse comma-separated declarations of the same base type
+ * @ts: Active token stream
+ * @out_list: Head of list to append parsed struct ast_decl nodes
+ *
+ * Handles multi-declarators (int a, *b = 0, c[10];), function prototypes,
+ * and complete function definitions with compound statement bodies.
+ *
+ * Return: Pointer to out_list.
+ */
 struct list_head *parse_decl_list(struct token_stream *ts,
                                   struct list_head *out_list)
 {
@@ -672,6 +758,12 @@ struct list_head *parse_decl_list(struct token_stream *ts,
     return out_list;
 }
 
+/**
+ * parse_decl - Parse a single declaration (first of a declarator list)
+ * @ts: Active token stream
+ *
+ * Return: Pointer to parsed struct ast_decl.
+ */
 struct ast_decl *parse_decl(struct token_stream *ts)
 {
     struct list_head decl_list;
@@ -688,6 +780,16 @@ struct ast_decl *parse_decl(struct token_stream *ts)
     return decl;
 }
 
+/**
+ * parse_prefix - Pratt expression parser prefix handler
+ * @ts: Active token stream
+ *
+ * Handles prefix/primary expressions: literals, identifiers, unary operators,
+ * parenthesized expressions, type casts, C11 _Generic selections, and GNU
+ * statement expressions ({ ... }).
+ *
+ * Return: Pointer to parsed struct ast_expr.
+ */
 static struct ast_expr *parse_prefix(struct token_stream *ts)
 {
     struct ast_expr *expr = NULL;
@@ -819,6 +921,18 @@ static struct ast_expr *parse_prefix(struct token_stream *ts)
     return NULL;
 }
 
+/**
+ * parse_infix - Pratt expression parser infix handler
+ * @ts: Active token stream
+ * @left: Left operand already parsed
+ * @prec: Precedence level of the triggering operator
+ *
+ * Handles function calls, member selections (. and ->), array subscripts,
+ * postfix increment/decrement, ternary conditional, assignments, and binary
+ * arithmetic/logical operators.
+ *
+ * Return: Pointer to composite parsed struct ast_expr.
+ */
 static struct ast_expr *parse_infix(struct token_stream *ts,
                                     struct ast_expr *left,
                                     enum expr_precedence prec)
@@ -955,6 +1069,13 @@ static struct ast_expr *parse_infix(struct token_stream *ts,
     return expr;
 }
 
+/**
+ * parse_expr_precedence - Pratt precedence climbing expression loop
+ * @ts: Active token stream
+ * @min_prec: Minimum binding power required to consume next infix operator
+ *
+ * Return: Fully parsed expression tree root, or NULL on error.
+ */
 struct ast_expr *parse_expr_precedence(struct token_stream *ts,
                                        enum expr_precedence min_prec)
 {
@@ -986,6 +1107,12 @@ struct ast_expr *parse_expr_precedence(struct token_stream *ts,
     return left;
 }
 
+/**
+ * parse_expr - Parse a complete expression starting at minimum precedence
+ * @ts: Active token stream
+ *
+ * Return: Pointer to parsed struct ast_expr.
+ */
 struct ast_expr *parse_expr(struct token_stream *ts)
 {
     return parse_expr_precedence(ts, PREC_NONE);
@@ -996,6 +1123,12 @@ struct parse_scope_entry {
     struct parse_scope_entry *prev;
 };
 
+/**
+ * parse_asm_stmt - Parse inline assembly statement (asm volatile (...);)
+ * @ts: Active token stream
+ *
+ * Return: Pointer to parsed struct ast_stmt of kind STMT_ASM.
+ */
 static struct ast_stmt *parse_asm_stmt(struct token_stream *ts)
 {
     struct ast_stmt *stmt = NULL;
@@ -1054,6 +1187,12 @@ static struct ast_stmt *parse_asm_stmt(struct token_stream *ts)
     return stmt;
 }
 
+/**
+ * parse_static_assert_stmt - Parse C11 _Static_assert(cond, "message");
+ * @ts: Active token stream
+ *
+ * Return: Pointer to parsed struct ast_stmt of kind STMT_STATIC_ASSERT.
+ */
 static struct ast_stmt *parse_static_assert_stmt(struct token_stream *ts)
 {
     struct ast_stmt *stmt = NULL;
@@ -1092,6 +1231,16 @@ static struct ast_stmt *parse_static_assert_stmt(struct token_stream *ts)
     return stmt;
 }
 
+/**
+ * parse_stmt_compound - Parse compound statement block { ... } iteratively
+ * @ts: Active token stream
+ *
+ * Employs an explicit arena-allocated scope stack instead of C runtime call
+ * recursion, keeping the C call stack shallow even for arbitrarily deep
+ * nested block constructs.
+ *
+ * Return: Pointer to parsed struct ast_stmt of kind STMT_COMPOUND.
+ */
 struct ast_stmt *parse_stmt_compound(struct token_stream *ts)
 {
     struct parse_scope_entry *scope_stack = NULL;
@@ -1181,6 +1330,16 @@ struct ast_stmt *parse_stmt_compound(struct token_stream *ts)
     return root_compound;
 }
 
+/**
+ * parse_stmt - Parse a single C statement
+ * @ts: Active token stream
+ *
+ * Handles control flow (if/else, while, do/while, for, switch/case/default,
+ * goto, break, continue, return), labels, asm statements, declaration
+ * statements, and expression statements.
+ *
+ * Return: Pointer to parsed struct ast_stmt.
+ */
 struct ast_stmt *parse_stmt(struct token_stream *ts)
 {
     struct ast_stmt *stmt = NULL;
@@ -1440,6 +1599,15 @@ struct ast_stmt *parse_stmt(struct token_stream *ts)
     return stmt;
 }
 
+/**
+ * parse_translation_unit - Iteratively parse an entire source file AST
+ * @ts: Active token stream
+ *
+ * Consumes top-level declarations, function definitions, empty statements,
+ * and C11 _Static_assert directives into a struct ast_translation_unit.
+ *
+ * Return: Pointer to populated struct ast_translation_unit.
+ */
 struct ast_translation_unit *parse_translation_unit(struct token_stream *ts)
 {
     struct ast_translation_unit *tu = NULL;
