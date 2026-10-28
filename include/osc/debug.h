@@ -282,4 +282,10 @@ void ast_dump_stmt(struct ast_stmt *stmt, FILE *out, int indent);
 void ast_dump_decl(struct ast_decl *decl, FILE *out, int indent);
 void ast_dump_translation_unit(struct ast_translation_unit *tu, FILE *out);
 
+/* CFG Dumpers */
+struct cfg_function;
+
+void cfg_dump_text(struct cfg_function *fn, FILE *out);
+void cfg_dump_dot(struct cfg_function *fn, FILE *out);
+
 #endif /* __OSC_DEBUG_H__ */

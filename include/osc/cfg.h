@@ -159,4 +159,8 @@ struct list_head *linearize_translation_unit(struct osc_context *ctx,
                                              struct ast_translation_unit *tu,
                                              struct list_head *out_cfg_funcs);
 
+/* CFG Pretty Printer and Visualizers */
+void cfg_dump_text(struct cfg_function *fn, FILE *out);
+void cfg_dump_dot(struct cfg_function *fn, FILE *out);
+
 #endif /* __OSC_CFG_H__ */

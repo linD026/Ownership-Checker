@@ -3,6 +3,7 @@
 #include <osc/compiler.h>
 #include <osc/debug.h>
 #include <osc/ast.h>
+#include <osc/cfg.h>
 
 __allow_unused void __debug_token(struct scan_file_control *sfc, int sym,
                                   struct symbol *symbol)
@@ -545,4 +546,236 @@ void ast_dump_translation_unit(struct ast_translation_unit *tu, FILE *out)
         else
             fprintf(out, "\n");
     }
+}
+
+/**
+ * cfg_dump_operand - Emit a formatted CFG operand string
+ * @op: Operand descriptor to print
+ * @out: Target output stream
+ */
+static void cfg_dump_operand(struct cfg_operand *op, FILE *out)
+{
+    if (!op || !out)
+        return;
+
+    switch (op->kind) {
+    case CFG_OPR_TEMP:
+        fprintf(out, "%%t%u", op->temp_id);
+        break;
+    case CFG_OPR_VAR:
+        if (op->var_decl && op->var_decl->id)
+            fprintf(out, "%%%s", op->var_decl->id->name);
+        else
+            fprintf(out, "%%<anon_var>");
+        break;
+    case CFG_OPR_CONST:
+        fprintf(out, "%ld", op->const_val);
+        break;
+    case CFG_OPR_SYM:
+        if (op->sym)
+            fprintf(out, "%%%s", op->sym->name);
+        else
+            fprintf(out, "%%<anon_sym>");
+        break;
+    case CFG_OPR_NONE:
+    default:
+        fprintf(out, "<none>");
+        break;
+    }
+}
+
+/**
+ * cfg_dump_insn - Emit a formatted 3-address pseudo-instruction line
+ * @insn: Pseudo-instruction to print
+ * @out: Target output stream
+ */
+static void cfg_dump_insn(struct instruction *insn, FILE *out)
+{
+    struct cfg_arg_node *arg = NULL;
+    bool first = true;
+
+    if (!insn || !out)
+        return;
+
+    switch (insn->opcode) {
+    case OP_ENTRY:
+        fprintf(out, "entry ");
+        cfg_dump_operand(&insn->target, out);
+        break;
+    case OP_ALLOC:
+        fprintf(out, "alloc ");
+        cfg_dump_operand(&insn->target, out);
+        break;
+    case OP_LOAD:
+        cfg_dump_operand(&insn->target, out);
+        fprintf(out, " = load ");
+        cfg_dump_operand(&insn->src1, out);
+        if (insn->op_sym != sym_dump && insn->op_sym != 0) {
+            fprintf(out, " %s ", token_name(insn->op_sym));
+            cfg_dump_operand(&insn->src2, out);
+        }
+        break;
+    case OP_STORE:
+        fprintf(out, "store ");
+        cfg_dump_operand(&insn->target, out);
+        fprintf(out, " = ");
+        cfg_dump_operand(&insn->src1, out);
+        break;
+    case OP_CALL:
+        cfg_dump_operand(&insn->target, out);
+        fprintf(out, " = call %s(",
+                insn->callee_sym ? insn->callee_sym->name : "<anon_fn>");
+        first = true;
+        list_for_each_entry (arg, &insn->args, node) {
+            if (!first)
+                fprintf(out, ", ");
+            cfg_dump_operand(&arg->op, out);
+            first = false;
+        }
+        fprintf(out, ")");
+        break;
+    case OP_CLEANUP:
+        fprintf(out, "cleanup %s(",
+                insn->callee_sym ? insn->callee_sym->name : "<dtor>");
+        cfg_dump_operand(&insn->target, out);
+        fprintf(out, ")");
+        break;
+    case OP_RET:
+        fprintf(out, "ret ");
+        cfg_dump_operand(&insn->src1, out);
+        break;
+    case OP_BR:
+        fprintf(out, "br BB%u", insn->target_bb ? insn->target_bb->id : 0);
+        break;
+    case OP_CBR:
+        fprintf(out, "cbr ");
+        cfg_dump_operand(&insn->src1, out);
+        fprintf(out, ", BB%u, BB%u", insn->true_bb ? insn->true_bb->id : 0,
+                insn->false_bb ? insn->false_bb->id : 0);
+        break;
+    case OP_ASM:
+        fprintf(out, "asm \"%s\"", insn->asm_code ? insn->asm_code : "");
+        break;
+    default:
+        fprintf(out, "nop");
+        break;
+    }
+}
+
+/**
+ * cfg_dump_text - Emit textual 3-address CFG listing
+ * @fn: Target linearized function graph
+ * @out: Target output stream
+ */
+void cfg_dump_text(struct cfg_function *fn, FILE *out)
+{
+    struct basic_block *bb = NULL;
+    struct instruction *insn = NULL;
+    struct cfg_edge *edge = NULL;
+    bool first = true;
+
+    if (!fn || !out)
+        return;
+
+    fprintf(out, "function %s:\n", fn->name ? fn->name->name : "<anon>");
+
+    list_for_each_entry (bb, &fn->bbs, node) {
+        fprintf(out, "  BB%u", bb->id);
+        if (bb->label)
+            fprintf(out, " [%s]", bb->label);
+        fprintf(out, ":\n");
+
+        /* Predecessors */
+        fprintf(out, "    ; preds: ");
+        first = true;
+        list_for_each_entry (edge, &bb->preds, pred_node) {
+            if (!first)
+                fprintf(out, ", ");
+            fprintf(out, "BB%u%s", edge->src->id,
+                    edge->is_backedge ? " (backedge)" : "");
+            first = false;
+        }
+        if (first)
+            fprintf(out, "<none>");
+        fprintf(out, "\n");
+
+        /* Instructions */
+        list_for_each_entry (insn, &bb->instructions, node) {
+            fprintf(out, "    ");
+            cfg_dump_insn(insn, out);
+            fprintf(out, "\n");
+        }
+
+        /* Successors */
+        fprintf(out, "    ; succs: ");
+        first = true;
+        list_for_each_entry (edge, &bb->succs, succ_node) {
+            if (!first)
+                fprintf(out, ", ");
+            fprintf(out, "BB%u%s", edge->dst->id,
+                    edge->is_backedge ? " (backedge)" : "");
+            first = false;
+        }
+        if (first)
+            fprintf(out, "<none>");
+        fprintf(out, "\n\n");
+    }
+}
+
+/**
+ * cfg_dump_dot - Emit Graphviz DOT visualization for a linearized CFG
+ * @fn: Target linearized function graph
+ * @out: Target output stream
+ */
+void cfg_dump_dot(struct cfg_function *fn, FILE *out)
+{
+    struct basic_block *bb = NULL;
+    struct instruction *insn = NULL;
+    struct cfg_edge *edge = NULL;
+
+    if (!fn || !out)
+        return;
+
+    fprintf(out, "digraph \"%s\" {\n", fn->name ? fn->name->name : "cfg");
+    fprintf(out,
+            "    node [shape=record, fontname=\"Courier\", fontsize=10];\n");
+    fprintf(out, "    edge [fontname=\"Courier\", fontsize=9];\n\n");
+
+    /* Render basic blocks */
+    list_for_each_entry (bb, &fn->bbs, node) {
+        fprintf(out, "    bb_%u [label=\"{BB%u", bb->id, bb->id);
+        if (bb->label)
+            fprintf(out, " [%s]", bb->label);
+        fprintf(out, "\\l|");
+
+        list_for_each_entry (insn, &bb->instructions, node) {
+            cfg_dump_insn(insn, out);
+            fprintf(out, "\\l");
+        }
+        fprintf(out, "}\"];\n");
+    }
+
+    fprintf(out, "\n");
+
+    /* Render directed control flow edges */
+    list_for_each_entry (bb, &fn->bbs, node) {
+        list_for_each_entry (edge, &bb->succs, succ_node) {
+            fprintf(out, "    bb_%u -> bb_%u", edge->src->id, edge->dst->id);
+            if (edge->is_backedge)
+                fprintf(out, " [color=red, style=dashed, label=\"backedge\"]");
+            else if (edge->src->instructions.prev != &edge->src->instructions) {
+                insn = list_last_entry(&edge->src->instructions,
+                                       struct instruction, node);
+                if (insn->opcode == OP_CBR) {
+                    if (edge->dst == insn->true_bb)
+                        fprintf(out, " [color=darkgreen, label=\"true\"]");
+                    else if (edge->dst == insn->false_bb)
+                        fprintf(out, " [color=firebrick, label=\"false\"]");
+                }
+            }
+            fprintf(out, ";\n");
+        }
+    }
+
+    fprintf(out, "}\n");
 }
