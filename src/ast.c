@@ -643,12 +643,113 @@ struct ast_expr *parse_expr(struct token_stream *ts)
     return parse_expr_precedence(ts, PREC_NONE);
 }
 
+struct parse_scope_entry {
+    struct ast_stmt *compound;
+    struct parse_scope_entry *prev;
+};
+
+static struct ast_stmt *parse_asm_stmt(struct token_stream *ts)
+{
+    struct ast_stmt *stmt = NULL;
+    struct osc_token *tok = NULL;
+    struct osc_span span = { 0 };
+    const char *asm_code = NULL;
+    int paren_depth = 0;
+
+    BUG_ON(!ts, "null token_stream");
+
+    tok = tok_consume(ts); /* consume asm or __asm__ */
+    if (tok)
+        span = tok->span;
+
+    /* Skip optional qualifiers: volatile, __volatile__, inline, goto */
+    while (1) {
+        tok = tok_peek(ts, 0);
+        if (!tok || tok->sym == sym_dump)
+            break;
+        if (tok->sym == sym_volatile || tok->sym == sym_inline ||
+            tok->sym == sym_goto ||
+            (tok->symbol && strcmp(tok->symbol->name, "__volatile__") == 0)) {
+            tok_consume(ts);
+        } else {
+            break;
+        }
+    }
+
+    /* Expect opening '(' */
+    if (!tok_match(ts, sym_left_paren))
+        return NULL;
+
+    paren_depth = 1;
+
+    /* First token inside might be the assembly string literal */
+    tok = tok_peek(ts, 0);
+    if (tok && tok->sym == sym_string_literals && tok->symbol)
+        asm_code = tok->symbol->name;
+
+    /* Skip until balanced closing ')' */
+    while (paren_depth > 0) {
+        tok = tok_consume(ts);
+        if (!tok || tok->sym == sym_dump)
+            break;
+        if (tok->sym == sym_left_paren)
+            paren_depth++;
+        else if (tok->sym == sym_right_paren)
+            paren_depth--;
+    }
+
+    tok_match(ts, sym_seq_point);
+
+    stmt = ast_new_stmt(ts->ctx, STMT_ASM, span);
+    stmt->asm_code = asm_code;
+
+    return stmt;
+}
+
+static struct ast_stmt *parse_static_assert_stmt(struct token_stream *ts)
+{
+    struct ast_stmt *stmt = NULL;
+    struct ast_expr *cond = NULL;
+    struct osc_token *tok = NULL;
+    struct osc_token *msg_tok = NULL;
+    struct osc_span span = { 0 };
+    const char *msg = NULL;
+
+    BUG_ON(!ts, "null token_stream");
+
+    tok = tok_consume(ts); /* consume _Static_assert */
+    if (tok)
+        span = tok->span;
+
+    if (!tok_match(ts, sym_left_paren))
+        return NULL;
+
+    cond = parse_expr_precedence(ts, PREC_ASSIGN);
+
+    if (tok_match(ts, sym_comma)) {
+        msg_tok = tok_peek(ts, 0);
+        if (msg_tok && msg_tok->sym == sym_string_literals && msg_tok->symbol) {
+            msg = msg_tok->symbol->name;
+            tok_consume(ts);
+        }
+    }
+
+    tok_match(ts, sym_right_paren);
+    tok_match(ts, sym_seq_point);
+
+    stmt = ast_new_stmt(ts->ctx, STMT_STATIC_ASSERT, span);
+    stmt->assert_cond = cond;
+    stmt->assert_msg = msg;
+
+    return stmt;
+}
+
 struct ast_stmt *parse_stmt_compound(struct token_stream *ts)
 {
-    struct ast_stmt *compound = NULL;
-    struct ast_stmt *child = NULL;
-    struct ast_decl *decl = NULL;
-    struct ast_expr *expr = NULL;
+    struct parse_scope_entry *scope_stack = NULL;
+    struct parse_scope_entry *new_entry = NULL;
+    struct ast_stmt *root_compound = NULL;
+    struct ast_stmt *stmt = NULL;
     struct osc_token *tok = NULL;
     struct osc_span span = { 0 };
 
@@ -658,75 +759,76 @@ struct ast_stmt *parse_stmt_compound(struct token_stream *ts)
     if (tok)
         span = tok->span;
 
-    tok_match(ts, sym_left_brace);
-    compound = ast_new_stmt(ts->ctx, STMT_COMPOUND, span);
+    if (!tok_match(ts, sym_left_brace))
+        return NULL;
 
-    while (1) {
+    root_compound = ast_new_stmt(ts->ctx, STMT_COMPOUND, span);
+    scope_stack = osc_arena_zalloc(&ts->ctx->arena, sizeof(*scope_stack));
+    BUG_ON(!scope_stack, "arena alloc failed for scope_stack");
+    scope_stack->compound = root_compound;
+    scope_stack->prev = NULL;
+
+    while (scope_stack) {
         tok = tok_peek(ts, 0);
-        if (!tok || tok->sym == sym_dump || tok->sym == sym_right_brace)
+        if (!tok || tok->sym == sym_dump)
             break;
 
-        /* Empty statement */
-        if (tok->sym == sym_seq_point) {
+        /* Exiting compound statement '}' */
+        if (tok->sym == sym_right_brace) {
             tok_consume(ts);
-            continue;
+            if (scope_stack->prev) {
+                list_add_tail(&scope_stack->compound->node,
+                              &scope_stack->prev->compound->stmts);
+                scope_stack = scope_stack->prev;
+                continue;
+            } else {
+                scope_stack = NULL;
+                break;
+            }
         }
 
-        /* Nested compound statement */
+        /* Nested compound statement '{' */
         if (tok->sym == sym_left_brace) {
-            child = parse_stmt_compound(ts);
-            list_add_tail(&child->node, &compound->stmts);
-            continue;
-        }
-
-        /* Variable declaration */
-        if (is_type_token(tok->sym)) {
-            decl = parse_decl(ts);
-            tok_match(ts, sym_seq_point);
-
-            list_add_tail(&decl->node, &compound->decls);
-
-            child = ast_new_stmt(ts->ctx, STMT_DECL, decl->span);
-            child->stmt_decl = decl;
-            list_add_tail(&child->node, &compound->stmts);
-            continue;
-        }
-
-        /* Return statement */
-        if (tok->sym == sym_return) {
             tok = tok_consume(ts);
-            expr = NULL;
-            if (tok_peek(ts, 0) && tok_peek(ts, 0)->sym != sym_seq_point)
-                expr = parse_expr(ts);
-            tok_match(ts, sym_seq_point);
-
-            child = ast_new_stmt(ts->ctx, STMT_RETURN, tok->span);
-            child->ret_expr = expr;
-            list_add_tail(&child->node, &compound->stmts);
+            new_entry = osc_arena_zalloc(&ts->ctx->arena, sizeof(*new_entry));
+            BUG_ON(!new_entry, "arena alloc failed for new_entry");
+            new_entry->compound =
+                ast_new_stmt(ts->ctx, STMT_COMPOUND, tok->span);
+            new_entry->prev = scope_stack;
+            scope_stack = new_entry;
             continue;
         }
 
-        /* Expression statement */
-        expr = parse_expr(ts);
-        if (expr) {
-            child = ast_new_stmt(ts->ctx, STMT_EXPR, expr->span);
-            child->expr = expr;
-            list_add_tail(&child->node, &compound->stmts);
+        /* Parse statement or declaration */
+        stmt = parse_stmt(ts);
+        if (stmt) {
+            list_add_tail(&stmt->node, &scope_stack->compound->stmts);
+            if (stmt->stmt_kind == STMT_DECL && stmt->stmt_decl)
+                list_add_tail(&stmt->stmt_decl->node,
+                              &scope_stack->compound->decls);
         }
-        tok_match(ts, sym_seq_point);
     }
 
-    tok_match(ts, sym_right_brace);
-
-    return compound;
+    return root_compound;
 }
 
 struct ast_stmt *parse_stmt(struct token_stream *ts)
 {
     struct ast_stmt *stmt = NULL;
+    struct ast_stmt *then_stmt = NULL;
+    struct ast_stmt *else_stmt = NULL;
+    struct ast_stmt *body = NULL;
+    struct ast_stmt *init_stmt = NULL;
     struct ast_decl *decl = NULL;
-    struct ast_expr *expr = NULL;
+    struct ast_expr *cond = NULL;
+    struct ast_expr *init_expr = NULL;
+    struct ast_expr *step_expr = NULL;
+    struct ast_expr *val_expr = NULL;
+    struct ast_expr *ret_expr = NULL;
     struct osc_token *tok = NULL;
+    struct osc_token *next = NULL;
+    struct osc_token *label_tok = NULL;
+    struct osc_span span = { 0 };
 
     BUG_ON(!ts, "null token_stream");
 
@@ -734,9 +836,216 @@ struct ast_stmt *parse_stmt(struct token_stream *ts)
     if (!tok || tok->sym == sym_dump)
         return NULL;
 
+    /* Compound statement '{ ... }' */
     if (tok->sym == sym_left_brace)
         return parse_stmt_compound(ts);
 
+    /* if statement */
+    if (tok->sym == sym_if) {
+        tok = tok_consume(ts);
+        span = tok->span;
+        tok_match(ts, sym_left_paren);
+        cond = parse_expr(ts);
+        tok_match(ts, sym_right_paren);
+        then_stmt = parse_stmt(ts);
+        if (tok_match(ts, sym_else))
+            else_stmt = parse_stmt(ts);
+
+        stmt = ast_new_stmt(ts->ctx, STMT_IF, span);
+        stmt->if_cond = cond;
+        stmt->then_stmt = then_stmt;
+        stmt->else_stmt = else_stmt;
+        return stmt;
+    }
+
+    /* while loop */
+    if (tok->sym == sym_while) {
+        tok = tok_consume(ts);
+        span = tok->span;
+        tok_match(ts, sym_left_paren);
+        cond = parse_expr(ts);
+        tok_match(ts, sym_right_paren);
+        body = parse_stmt(ts);
+
+        stmt = ast_new_stmt(ts->ctx, STMT_WHILE, span);
+        stmt->loop_cond = cond;
+        stmt->loop_body = body;
+        return stmt;
+    }
+
+    /* do-while loop */
+    if (tok->sym == sym_do) {
+        tok = tok_consume(ts);
+        span = tok->span;
+        body = parse_stmt(ts);
+        tok_match(ts, sym_while);
+        tok_match(ts, sym_left_paren);
+        cond = parse_expr(ts);
+        tok_match(ts, sym_right_paren);
+        tok_match(ts, sym_seq_point);
+
+        stmt = ast_new_stmt(ts->ctx, STMT_DO_WHILE, span);
+        stmt->loop_cond = cond;
+        stmt->loop_body = body;
+        return stmt;
+    }
+
+    /* for loop */
+    if (tok->sym == sym_for) {
+        tok = tok_consume(ts);
+        span = tok->span;
+        tok_match(ts, sym_left_paren);
+
+        if (tok_peek(ts, 0) && is_type_token(tok_peek(ts, 0)->sym)) {
+            decl = parse_decl(ts);
+            tok_match(ts, sym_seq_point);
+            init_stmt = ast_new_stmt(ts->ctx, STMT_DECL, decl->span);
+            init_stmt->stmt_decl = decl;
+        } else if (tok_peek(ts, 0) && tok_peek(ts, 0)->sym != sym_seq_point) {
+            init_expr = parse_expr(ts);
+            tok_match(ts, sym_seq_point);
+        } else {
+            tok_match(ts, sym_seq_point);
+        }
+
+        if (tok_peek(ts, 0) && tok_peek(ts, 0)->sym != sym_seq_point)
+            cond = parse_expr(ts);
+        tok_match(ts, sym_seq_point);
+
+        if (tok_peek(ts, 0) && tok_peek(ts, 0)->sym != sym_right_paren)
+            step_expr = parse_expr(ts);
+        tok_match(ts, sym_right_paren);
+
+        body = parse_stmt(ts);
+
+        stmt = ast_new_stmt(ts->ctx, STMT_FOR, span);
+        stmt->for_init_stmt = init_stmt;
+        stmt->for_init_expr = init_expr;
+        stmt->for_cond = cond;
+        stmt->for_step = step_expr;
+        stmt->for_body = body;
+        return stmt;
+    }
+
+    /* switch statement */
+    if (tok->sym == sym_switch) {
+        tok = tok_consume(ts);
+        span = tok->span;
+        tok_match(ts, sym_left_paren);
+        cond = parse_expr(ts);
+        tok_match(ts, sym_right_paren);
+        body = parse_stmt(ts);
+
+        stmt = ast_new_stmt(ts->ctx, STMT_SWITCH, span);
+        stmt->switch_cond = cond;
+        stmt->switch_body = body;
+        return stmt;
+    }
+
+    /* case label */
+    if (tok->sym == sym_case) {
+        tok = tok_consume(ts);
+        span = tok->span;
+        val_expr = parse_expr_precedence(ts, PREC_ASSIGN);
+        tok_match(ts, sym_colon);
+        if (tok_peek(ts, 0) && tok_peek(ts, 0)->sym != sym_case &&
+            tok_peek(ts, 0)->sym != sym_default &&
+            tok_peek(ts, 0)->sym != sym_right_brace)
+            body = parse_stmt(ts);
+
+        stmt = ast_new_stmt(ts->ctx, STMT_CASE, span);
+        stmt->case_val = val_expr;
+        stmt->case_body = body;
+        return stmt;
+    }
+
+    /* default label */
+    if (tok->sym == sym_default) {
+        tok = tok_consume(ts);
+        span = tok->span;
+        tok_match(ts, sym_colon);
+        if (tok_peek(ts, 0) && tok_peek(ts, 0)->sym != sym_case &&
+            tok_peek(ts, 0)->sym != sym_default &&
+            tok_peek(ts, 0)->sym != sym_right_brace)
+            body = parse_stmt(ts);
+
+        stmt = ast_new_stmt(ts->ctx, STMT_DEFAULT, span);
+        stmt->case_body = body;
+        return stmt;
+    }
+
+    /* goto statement */
+    if (tok->sym == sym_goto) {
+        tok = tok_consume(ts);
+        span = tok->span;
+        label_tok = tok_peek(ts, 0);
+        if (label_tok && label_tok->sym == sym_id)
+            tok_consume(ts);
+        tok_match(ts, sym_seq_point);
+
+        stmt = ast_new_stmt(ts->ctx, STMT_GOTO, span);
+        stmt->label_name = label_tok ? label_tok->symbol : NULL;
+        return stmt;
+    }
+
+    /* break statement */
+    if (tok->sym == sym_break) {
+        tok = tok_consume(ts);
+        tok_match(ts, sym_seq_point);
+        return ast_new_stmt(ts->ctx, STMT_BREAK, tok->span);
+    }
+
+    /* continue statement */
+    if (tok->sym == sym_continue) {
+        tok = tok_consume(ts);
+        tok_match(ts, sym_seq_point);
+        return ast_new_stmt(ts->ctx, STMT_CONTINUE, tok->span);
+    }
+
+    /* return statement */
+    if (tok->sym == sym_return) {
+        tok = tok_consume(ts);
+        span = tok->span;
+        if (tok_peek(ts, 0) && tok_peek(ts, 0)->sym != sym_seq_point)
+            ret_expr = parse_expr(ts);
+        tok_match(ts, sym_seq_point);
+
+        stmt = ast_new_stmt(ts->ctx, STMT_RETURN, span);
+        stmt->ret_expr = ret_expr;
+        return stmt;
+    }
+
+    /* Inline assembly statement */
+    if (tok->sym == sym_asm || tok->sym == sym___asm__)
+        return parse_asm_stmt(ts);
+
+    /* C11 _Static_assert statement */
+    if (tok->sym == sym__Static_assert)
+        return parse_static_assert_stmt(ts);
+
+    /* Labeled statement (id followed by ':') */
+    if (tok->sym == sym_id) {
+        next = tok_peek(ts, 1);
+        if (next && next->sym == sym_colon) {
+            label_tok = tok_consume(ts);
+            tok_consume(ts); /* consume ':' */
+            if (tok_peek(ts, 0) && tok_peek(ts, 0)->sym != sym_right_brace)
+                body = parse_stmt(ts);
+
+            stmt = ast_new_stmt(ts->ctx, STMT_LABEL, label_tok->span);
+            stmt->label_name = label_tok->symbol;
+            stmt->label_stmt = body;
+            return stmt;
+        }
+    }
+
+    /* Empty statement ';' */
+    if (tok->sym == sym_seq_point) {
+        tok = tok_consume(ts);
+        return ast_new_stmt(ts->ctx, STMT_EMPTY, tok->span);
+    }
+
+    /* Variable declaration statement */
     if (is_type_token(tok->sym)) {
         decl = parse_decl(ts);
         tok_match(ts, sym_seq_point);
@@ -746,23 +1055,12 @@ struct ast_stmt *parse_stmt(struct token_stream *ts)
         return stmt;
     }
 
-    if (tok->sym == sym_return) {
-        tok = tok_consume(ts);
-        expr = NULL;
-        if (tok_peek(ts, 0) && tok_peek(ts, 0)->sym != sym_seq_point)
-            expr = parse_expr(ts);
-        tok_match(ts, sym_seq_point);
-
-        stmt = ast_new_stmt(ts->ctx, STMT_RETURN, tok->span);
-        stmt->ret_expr = expr;
-        return stmt;
-    }
-
-    expr = parse_expr(ts);
+    /* Expression statement */
+    init_expr = parse_expr(ts);
     tok_match(ts, sym_seq_point);
-    if (expr) {
-        stmt = ast_new_stmt(ts->ctx, STMT_EXPR, expr->span);
-        stmt->expr = expr;
+    if (init_expr) {
+        stmt = ast_new_stmt(ts->ctx, STMT_EXPR, init_expr->span);
+        stmt->expr = init_expr;
     }
 
     return stmt;
