@@ -17,6 +17,7 @@ CFLAGS+=$(DEBUG_FLAGS)
 endif
 
 SRC:=src/osc.c
+SRC+=src/arena.c
 SRC+=src/object_ptr.c
 SRC+=src/fork.c
 SRC+=src/debug.c

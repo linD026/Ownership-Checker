@@ -81,7 +81,15 @@ static inline void list_del(struct list_head *node)
 #define list_first_entry(ptr, type, member) \
     container_of((ptr)->next, type, member)
 
+#define list_last_entry(ptr, type, member) \
+    container_of((ptr)->prev, type, member)
+
 #define list_next_entry(pos, member) \
     container_of((pos)->member.next, __typeof__(*(pos)), member)
+
+#define list_for_each_entry_safe(pos, n, head, member)           \
+    for (pos = list_first_entry(head, __typeof__(*pos), member), \
+        n = list_next_entry(pos, member);                        \
+         &pos->member != (head); pos = n, n = list_next_entry(n, member))
 
 #endif /* __OSC_LIST_H__ */
