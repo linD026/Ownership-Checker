@@ -346,4 +346,11 @@ struct list_head *parse_decl_list(struct token_stream *ts,
 struct ast_type *parse_type(struct token_stream *ts);
 struct ast_translation_unit *parse_translation_unit(struct token_stream *ts);
 
+/* AST Pretty Printer and Debug Dumpers */
+void ast_dump_type(struct ast_type *type, FILE *out);
+void ast_dump_expr(struct ast_expr *expr, FILE *out, int indent);
+void ast_dump_stmt(struct ast_stmt *stmt, FILE *out, int indent);
+void ast_dump_decl(struct ast_decl *decl, FILE *out, int indent);
+void ast_dump_translation_unit(struct ast_translation_unit *tu, FILE *out);
+
 #endif /* __OSC_AST_H__ */

@@ -647,9 +647,69 @@ int cmp_token(struct symbol *l, struct symbol *r)
 
 const char *token_name(int n)
 {
-    BUG_ON(n < 0 || n >= ARRAY_SIZE(sym_table), "out of scope:%d", n);
+    if (n >= 0 && n < ARRAY_SIZE(sym_table))
+        return sym_table[n].name;
 
-    return sym_table[n].name;
+    switch (n) {
+    case sym_left_paren:
+        return "(";
+    case sym_right_paren:
+        return ")";
+    case sym_left_brace:
+        return "{";
+    case sym_right_brace:
+        return "}";
+    case sym_left_sq_brace:
+        return "[";
+    case sym_right_sq_brace:
+        return "]";
+    case sym_aster:
+        return "*";
+    case sym_slash:
+        return "/";
+    case sym_percent:
+        return "%";
+    case sym_lt:
+        return "<";
+    case sym_gt:
+        return ">";
+    case sym_eq:
+        return "=";
+    case sym_add:
+        return "+";
+    case sym_minus:
+        return "-";
+    case sym_quotation:
+        return "\"";
+    case sym_bit_and:
+        return "&";
+    case sym_bit_or:
+        return "|";
+    case sym_bit_xor:
+        return "^";
+    case sym_bit_not:
+        return "~";
+    case sym_exclaim:
+        return "!";
+    case sym_query:
+        return "?";
+    case sym_colon:
+        return ":";
+    case sym_comma:
+        return ",";
+    case sym_dot:
+        return ".";
+    case sym_seq_point:
+        return ";";
+    case sym_numeric_constant:
+        return "<number>";
+    case sym_string_literals:
+        return "<string>";
+    case sym_id:
+        return "<id>";
+    default:
+        return "<unknown>";
+    }
 }
 
 static unsigned long random_generation = 0;

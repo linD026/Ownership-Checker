@@ -269,4 +269,17 @@ void debug_variable(struct variable *var, const char *note);
 void debug_structure(struct structure *structure, const char *note);
 void debug_function(struct function *function);
 
+/* AST Dumpers */
+struct ast_type;
+struct ast_expr;
+struct ast_stmt;
+struct ast_decl;
+struct ast_translation_unit;
+
+void ast_dump_type(struct ast_type *type, FILE *out);
+void ast_dump_expr(struct ast_expr *expr, FILE *out, int indent);
+void ast_dump_stmt(struct ast_stmt *stmt, FILE *out, int indent);
+void ast_dump_decl(struct ast_decl *decl, FILE *out, int indent);
+void ast_dump_translation_unit(struct ast_translation_unit *tu, FILE *out);
+
 #endif /* __OSC_DEBUG_H__ */
