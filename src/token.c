@@ -120,6 +120,10 @@ static struct symbol sym_table[] = {
     SYM_ENTRY(else),
     SYM_ENTRY(switch),
     SYM_ENTRY(case),
+    SYM_ENTRY(default),
+    SYM_ENTRY(goto),
+    SYM_ENTRY(break),
+    SYM_ENTRY(continue),
     SYM_ENTRY(return),
     SYM_ENTRY(true),
     SYM_ENTRY(false),
@@ -144,6 +148,8 @@ static struct symbol sym_table[] = {
     __SYM_ENTRY(>=, sym_ge),
     __SYM_ENTRY(<<, sym_bit_left),
     __SYM_ENTRY(>>, sym_bit_right),
+    __SYM_ENTRY(++, sym_inc),
+    __SYM_ENTRY(--, sym_dec),
 };
 
 static int __check_sym_one_char(struct scan_file_control *sfc)
@@ -171,6 +177,12 @@ static int __check_sym_one_char(struct scan_file_control *sfc)
     case '*':
         sym = sym_aster;
         break;
+    case '/':
+        sym = sym_slash;
+        break;
+    case '%':
+        sym = sym_percent;
+        break;
     case '<':
         sym = sym_lt;
         break;
@@ -194,6 +206,21 @@ static int __check_sym_one_char(struct scan_file_control *sfc)
         break;
     case '|':
         sym = sym_bit_or;
+        break;
+    case '^':
+        sym = sym_bit_xor;
+        break;
+    case '~':
+        sym = sym_bit_not;
+        break;
+    case '!':
+        sym = sym_exclaim;
+        break;
+    case '?':
+        sym = sym_query;
+        break;
+    case ':':
+        sym = sym_colon;
         break;
     case ',':
         sym = sym_comma;
@@ -468,14 +495,32 @@ out:
 static int get_string_literals(struct scan_file_control *sfc,
                                struct symbol **id)
 {
-    // TODO: check the logic
+    struct symbol_id_struct *symbol_id = NULL;
+    unsigned int orig_offset = 0;
+    unsigned int str_len = 0;
+
     pr_debug("string literals start\n");
+    orig_offset = sfc->offset;
     while (next_chars_blank_stop(sfc) != -ENODATA) {
         char ch = current_char(sfc);
 
         if (ch == '"') {
             pr_debug("string literals end\n");
+            str_len = sfc->offset - orig_offset;
             sfc->offset++;
+
+            symbol_id = malloc(sizeof(struct symbol_id_struct));
+            BUG_ON(!symbol_id, "malloc");
+            list_add_tail(&symbol_id->node, &symbol_id_container.head);
+            *id = &symbol_id->sym;
+
+            (*id)->flags = sym_string_literals;
+            (*id)->len = str_len;
+            (*id)->name = malloc(str_len + 1);
+            BUG_ON(!(*id)->name, "malloc");
+            strncpy((*id)->name, &sfc->buffer[orig_offset], str_len);
+            (*id)->name[str_len] = '\0';
+
             return sym_string_literals;
         }
         pr_debug("%c\n", ch);

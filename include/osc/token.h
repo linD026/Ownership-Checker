@@ -66,6 +66,10 @@ enum {
     sym_else,
     sym_switch,
     sym_case,
+    sym_default,
+    sym_goto,
+    sym_break,
+    sym_continue,
     sym_return,
     sym_true, /* C23 keyword true, false */
     sym_false,
