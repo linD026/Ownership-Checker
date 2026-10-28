@@ -49,6 +49,9 @@ struct cfg_operand {
 /* Call Argument Node */
 struct cfg_arg_node {
     struct cfg_operand op;
+    struct ast_decl
+        *proj_var; /* Root container variable if projection &ptr->member */
+    struct symbol *proj_member;
     struct list_head node;
 };
 
@@ -153,6 +156,9 @@ struct cfg_operand cfg_op_sym(struct symbol *sym);
 /* Instruction Helpers */
 void cfg_insn_add_arg(struct cfg_function *fn, struct instruction *insn,
                       struct cfg_operand op);
+void cfg_insn_add_arg_proj(struct cfg_function *fn, struct instruction *insn,
+                           struct cfg_operand op, struct ast_decl *proj_var,
+                           struct symbol *proj_member);
 
 /* Translation Unit Linearization */
 struct cfg_function *linearize_function(struct osc_context *ctx,

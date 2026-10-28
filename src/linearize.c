@@ -181,13 +181,16 @@ void cfg_bb_add_insn(struct basic_block *bb, struct instruction *insn)
 }
 
 /**
- * cfg_insn_add_arg - Append a call argument operand to an instruction
+ * cfg_insn_add_arg_proj - Append a call argument operand with projection metadata
  * @fn: Enclosing CFG function graph
  * @insn: Call or cleanup instruction
  * @op: Argument operand
+ * @proj_var: Root container variable if projection &ptr->member
+ * @proj_member: Intrusive link member symbol
  */
-void cfg_insn_add_arg(struct cfg_function *fn, struct instruction *insn,
-                      struct cfg_operand op)
+void cfg_insn_add_arg_proj(struct cfg_function *fn, struct instruction *insn,
+                           struct cfg_operand op, struct ast_decl *proj_var,
+                           struct symbol *proj_member)
 {
     struct cfg_arg_node *arg_node = NULL;
 
@@ -198,9 +201,23 @@ void cfg_insn_add_arg(struct cfg_function *fn, struct instruction *insn,
     BUG_ON(!arg_node, "arena zalloc failed for cfg_arg_node");
 
     arg_node->op = op;
+    arg_node->proj_var = proj_var;
+    arg_node->proj_member = proj_member;
     list_init(&arg_node->node);
     list_add_tail(&arg_node->node, &insn->args);
     insn->arg_count++;
+}
+
+/**
+ * cfg_insn_add_arg - Append a call argument operand to an instruction
+ * @fn: Enclosing CFG function graph
+ * @insn: Call or cleanup instruction
+ * @op: Argument operand
+ */
+void cfg_insn_add_arg(struct cfg_function *fn, struct instruction *insn,
+                      struct cfg_operand op)
+{
+    cfg_insn_add_arg_proj(fn, insn, op, NULL, NULL);
 }
 
 /**
@@ -442,6 +459,8 @@ static struct cfg_operand linearize_expr(struct linearize_context *lctx,
     struct basic_block *then_bb = NULL;
     struct basic_block *else_bb = NULL;
     struct basic_block *merge_bb = NULL;
+    struct ast_decl *proj_var = NULL;
+    struct symbol *proj_mem = NULL;
 
     if (!expr)
         return op;
@@ -512,7 +531,19 @@ static struct cfg_operand linearize_expr(struct linearize_context *lctx,
 
         list_for_each_entry (arg, &expr->args, node) {
             arg_op = linearize_expr(lctx, arg);
-            cfg_insn_add_arg(lctx->fn, insn, arg_op);
+            proj_var = NULL;
+            proj_mem = NULL;
+
+            if (arg->expr_kind == EXPR_UNARY && arg->unary_op == sym_bit_and &&
+                arg->operand && arg->operand->expr_kind == EXPR_MEMBER) {
+                if (arg->operand->object &&
+                    arg->operand->object->expr_kind == EXPR_IDENT) {
+                    proj_var =
+                        linearize_find_var(lctx, arg->operand->object->id);
+                    proj_mem = arg->operand->member;
+                }
+            }
+            cfg_insn_add_arg_proj(lctx->fn, insn, arg_op, proj_var, proj_mem);
         }
 
         cfg_bb_add_insn(lctx->curr_bb, insn);

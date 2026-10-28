@@ -32,6 +32,8 @@ struct dataflow_state {
     struct list_head var_states; /* List of struct dataflow_var_state */
     struct osc_context *ctx;
     struct cfg_function *fn;
+    bool *temp_allocated;
+    size_t temp_allocated_size;
 };
 
 /* Pluggable Checker Interface */
@@ -50,6 +52,11 @@ struct osc_checker {
     void (*finalize_function)(struct osc_context *ctx, struct cfg_function *fn);
 };
 
+/* Model 1: Explicit OSC Ownership Checker Pass (__mut, __brw, __clone) */
+extern const struct osc_checker checker_osc_attr;
+/* Model 2: Unmodified Linux Kernel Resource & Hybrid RAII Checker Pass */
+extern const struct osc_checker checker_linux_resource;
+
 /* State Management Helpers */
 struct dataflow_state *dataflow_state_new(struct osc_context *ctx,
                                           struct cfg_function *fn);
@@ -66,9 +73,13 @@ bool dataflow_state_equal(const struct dataflow_state *s1,
 int run_dataflow_analysis(struct osc_context *ctx, struct cfg_function *fn,
                           const struct osc_checker *checker);
 
-/* Model 1: Explicit OSC Ownership Checker Pass (__mut, __brw, __clone) */
-extern const struct osc_checker checker_osc_attr;
+/* General helper functions */
+
 struct ast_decl *osc_find_decl(struct osc_context *ctx, struct symbol *sym);
+
+/* Report Helper functions */
+void osc_report_span(struct osc_context *ctx, struct osc_span span,
+                            const char *msg);
 
 /* Legacy Checkers (Preserved for single-pass parser compatibility) */
 struct scan_file_control;
