@@ -352,6 +352,41 @@ static void linearize_add_scope_var(struct linearize_context *lctx,
 }
 
 /**
+ * linearize_find_var - Search active lexical scopes and parameters for variable
+ * @lctx: Active linearization context
+ * @id: Symbol name of variable
+ *
+ * Return: Matching struct ast_decl declaration if found, NULL otherwise.
+ */
+static struct ast_decl *linearize_find_var(struct linearize_context *lctx,
+                                           struct symbol *id)
+{
+    struct linearize_scope *s = NULL;
+    struct linearize_var *v = NULL;
+    struct ast_decl *param = NULL;
+
+    if (!lctx || !id)
+        return NULL;
+
+    for (s = lctx->scope; s; s = s->prev) {
+        list_for_each_entry (v, &s->vars, node) {
+            if (v->decl && v->decl->id == id)
+                return v->decl;
+        }
+    }
+
+    if (lctx->fn && lctx->fn->decl && lctx->fn->decl->type &&
+        lctx->fn->decl->type->is_function) {
+        list_for_each_entry (param, &lctx->fn->decl->type->params, node) {
+            if (param->id == id)
+                return param;
+        }
+    }
+
+    return NULL;
+}
+
+/**
  * linearize_emit_scope_cleanups - Synthesize OP_CLEANUP for scopes falling out
  * @lctx: Active linearization context
  * @target_scope: Outermost scope to retain (NULL to clear all up to fn entry)
@@ -418,16 +453,29 @@ static struct cfg_operand linearize_expr(struct linearize_context *lctx,
         return cfg_op_const(0, expr->type);
 
     case EXPR_IDENT:
+        if (!expr->decl_ref)
+            expr->decl_ref = linearize_find_var(lctx, expr->id);
         if (expr->decl_ref)
             return cfg_op_var(expr->decl_ref);
         return cfg_op_sym(expr->id);
 
     case EXPR_ASSIGN:
         right_op = linearize_expr(lctx, expr->right);
+        if (expr->left && expr->left->expr_kind == EXPR_UNARY &&
+            expr->left->unary_op == sym_aster) {
+            left_op = linearize_expr(lctx, expr->left->operand);
+            insn = cfg_insn_new(lctx->fn, OP_STORE, expr->span);
+            insn->target = left_op;
+            insn->src1 = right_op;
+            insn->is_deref = true;
+            cfg_bb_add_insn(lctx->curr_bb, insn);
+            return left_op;
+        }
         left_op = linearize_expr(lctx, expr->left);
         insn = cfg_insn_new(lctx->fn, OP_STORE, expr->span);
         insn->target = left_op;
         insn->src1 = right_op;
+        insn->is_deref = false;
         cfg_bb_add_insn(lctx->curr_bb, insn);
         return left_op;
 
@@ -567,6 +615,7 @@ static void linearize_stmt(struct linearize_context *lctx,
     struct basic_block *label_bb = NULL;
     struct linearize_scope *new_scope = NULL;
     struct linearize_scope *s = NULL;
+    struct linearize_var *v = NULL;
     struct ast_stmt *child = NULL;
     struct cfg_operand cond_op = { 0 };
     struct cfg_operand ret_op = { 0 };
@@ -588,15 +637,26 @@ static void linearize_stmt(struct linearize_context *lctx,
         list_for_each_entry (child, &stmt->stmts, node)
             linearize_stmt(lctx, child);
 
-        /* Normal scope fallthrough exits emit cleanups */
-        if (!bb_has_terminator(lctx->curr_bb))
+        /* Normal scope fallthrough exits emit cleanups and scope boundaries */
+        if (!bb_has_terminator(lctx->curr_bb)) {
             linearize_emit_scope_cleanups(lctx, new_scope->prev);
+            list_for_each_entry (v, &new_scope->vars, node) {
+                if (v->decl && lctx->curr_bb &&
+                    !bb_has_terminator(lctx->curr_bb)) {
+                    insn = cfg_insn_new(lctx->fn, OP_SCOPE_END, v->decl->span);
+                    insn->target = cfg_op_var(v->decl);
+                    cfg_bb_add_insn(lctx->curr_bb, insn);
+                }
+            }
+        }
 
         lctx->scope = new_scope->prev;
         break;
 
     case STMT_DECL:
         if (stmt->stmt_decl) {
+            linearize_add_scope_var(lctx, stmt->stmt_decl,
+                                    stmt->stmt_decl->cleanup_fn);
             insn = cfg_insn_new(lctx->fn, OP_ALLOC, stmt->stmt_decl->span);
             insn->target = cfg_op_var(stmt->stmt_decl);
             cfg_bb_add_insn(lctx->curr_bb, insn);
@@ -608,10 +668,6 @@ static void linearize_stmt(struct linearize_context *lctx,
                 insn->src1 = init_op;
                 cfg_bb_add_insn(lctx->curr_bb, insn);
             }
-
-            if (stmt->stmt_decl->cleanup_fn)
-                linearize_add_scope_var(lctx, stmt->stmt_decl,
-                                        stmt->stmt_decl->cleanup_fn);
         }
         break;
 

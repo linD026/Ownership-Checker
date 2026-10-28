@@ -136,6 +136,7 @@ struct ast_translation_unit *ast_new_translation_unit(struct osc_context *ctx)
     BUG_ON(!tu, "arena zalloc failed for ast_translation_unit");
 
     tu->ctx = ctx;
+    ctx->tu = tu;
     list_init(&tu->decls);
     list_init(&tu->typedefs);
 

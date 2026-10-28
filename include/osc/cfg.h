@@ -16,6 +16,7 @@ enum cfg_opcode {
     OP_STORE, /* Store to variable or memory: *target = src1 or target = src1 */
     OP_CALL, /* Function call: target = callee(args...) */
     OP_CLEANUP, /* RAII cleanup invocation: cleanup_fn(&var) */
+    OP_SCOPE_END, /* Lexical scope boundary: variable exits scope */
     OP_RET, /* Return from function: return src1 */
     OP_BR, /* Unconditional branch to target_bb */
     OP_CBR, /* Conditional branch on src1: true_bb / false_bb */
@@ -84,6 +85,7 @@ struct instruction {
     struct symbol *container_member;
     struct ast_type *container_type;
     bool is_err_check;
+    bool is_deref;
 
     struct basic_block *bb; /* Enclosing basic block */
     struct list_head node; /* Link in bb->instructions */

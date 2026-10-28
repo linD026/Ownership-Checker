@@ -7,6 +7,7 @@
 
 struct file_info;
 struct scan_file_control;
+struct ast_translation_unit;
 
 enum osc_mode {
     OSC_MODE_AUTO = 0,
@@ -19,6 +20,7 @@ struct osc_context {
     struct scan_file_control *sfc;
     struct osc_arena arena;
     enum osc_mode mode;
+    struct ast_translation_unit *tu;
 
     unsigned int error_count;
     unsigned int warning_count;

@@ -417,6 +417,7 @@ void symbol_id_container_release(void)
             container_of(curr, struct symbol_id_struct, node);
         free(symbol_id);
     }
+    list_init(&symbol_id_container.head);
 }
 
 static struct symbol *search_sym_id(char *id, unsigned int len)

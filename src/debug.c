@@ -616,7 +616,10 @@ static void cfg_dump_insn(struct instruction *insn, FILE *out)
         }
         break;
     case OP_STORE:
-        fprintf(out, "store ");
+        if (insn->is_deref)
+            fprintf(out, "store *");
+        else
+            fprintf(out, "store ");
         cfg_dump_operand(&insn->target, out);
         fprintf(out, " = ");
         cfg_dump_operand(&insn->src1, out);
@@ -639,6 +642,10 @@ static void cfg_dump_insn(struct instruction *insn, FILE *out)
                 insn->callee_sym ? insn->callee_sym->name : "<dtor>");
         cfg_dump_operand(&insn->target, out);
         fprintf(out, ")");
+        break;
+    case OP_SCOPE_END:
+        fprintf(out, "scope_end ");
+        cfg_dump_operand(&insn->target, out);
         break;
     case OP_RET:
         fprintf(out, "ret ");
