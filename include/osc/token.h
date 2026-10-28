@@ -1,6 +1,7 @@
 #ifndef __OSC_TOKEN_H__
 #define __OSC_TOKEN_H__
 
+#include <stdio.h>
 #include <osc/compiler.h>
 
 enum {
@@ -145,6 +146,23 @@ struct osc_token {
     struct symbol *symbol;
     struct osc_span span;
 };
+
+struct osc_context;
+
+struct token_stream {
+    struct osc_token *tokens;
+    size_t count;
+    size_t capacity;
+    size_t pos;
+    struct osc_context *ctx;
+};
+
+int token_stream_init(struct token_stream *ts, struct osc_context *ctx);
+int token_stream_tokenize_file(struct token_stream *ts, FILE *fp,
+                               const char *filename);
+struct osc_token *tok_peek(struct token_stream *ts, size_t lookahead);
+struct osc_token *tok_consume(struct token_stream *ts);
+bool tok_match(struct token_stream *ts, int sym);
 
 int token_init(struct scan_file_control *sfc);
 void symbol_id_container_release(void);

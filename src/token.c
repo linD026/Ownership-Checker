@@ -2,6 +2,7 @@
 #include <osc/list.h>
 #include <osc/debug.h>
 #include <osc/parser.h>
+#include <osc/context.h>
 #include <string.h>
 #include <errno.h>
 
@@ -631,4 +632,147 @@ struct symbol *new_anon_symbol(void)
     list_add_tail(&symbol_id->node, &symbol_id_container.head);
 
     return &symbol_id->sym;
+}
+
+#define TOKEN_STREAM_INITIAL_CAPACITY 256
+
+int token_stream_init(struct token_stream *ts, struct osc_context *ctx)
+{
+    size_t initial_bytes = 0;
+
+    BUG_ON(!ts, "null token_stream");
+    BUG_ON(!ctx, "null osc_context");
+
+    ts->ctx = ctx;
+    ts->count = 0;
+    ts->pos = 0;
+    ts->capacity = TOKEN_STREAM_INITIAL_CAPACITY;
+
+    initial_bytes = ts->capacity * sizeof(struct osc_token);
+    ts->tokens = osc_arena_alloc(&ctx->arena, initial_bytes);
+    BUG_ON(!ts->tokens, "arena alloc failed for token stream");
+
+    return 0;
+}
+
+static int token_stream_append(struct token_stream *ts, int sym,
+                               struct symbol *symbol, unsigned long line,
+                               unsigned int col, unsigned int len,
+                               unsigned long offset)
+{
+    struct osc_token *new_tokens = NULL;
+    size_t new_cap = 0;
+    size_t old_bytes = 0;
+    size_t new_bytes = 0;
+
+    if (ts->count >= ts->capacity) {
+        new_cap = ts->capacity * 2;
+        new_bytes = new_cap * sizeof(struct osc_token);
+        old_bytes = ts->capacity * sizeof(struct osc_token);
+
+        new_tokens = osc_arena_alloc(&ts->ctx->arena, new_bytes);
+        BUG_ON(!new_tokens, "arena alloc failed expanding token stream");
+
+        memcpy(new_tokens, ts->tokens, old_bytes);
+        ts->tokens = new_tokens;
+        ts->capacity = new_cap;
+    }
+
+    ts->tokens[ts->count].sym = sym;
+    ts->tokens[ts->count].symbol = symbol;
+    ts->tokens[ts->count].span.line = line;
+    ts->tokens[ts->count].span.col = col;
+    ts->tokens[ts->count].span.len = len;
+    ts->tokens[ts->count].span.offset = offset;
+    ts->count++;
+
+    return 0;
+}
+
+int token_stream_tokenize_file(struct token_stream *ts, FILE *fp,
+                               const char *filename)
+{
+    struct file_info fi;
+    struct scan_file_control sfc;
+    struct symbol *sym = NULL;
+    int token_sym = 0;
+    unsigned int col = 0;
+    unsigned long line = 0;
+
+    BUG_ON(!ts, "null token_stream");
+    BUG_ON(!fp, "null file pointer");
+
+    memset(&fi, 0, sizeof(fi));
+    fi.file = fp;
+    if (filename) {
+        strncpy(fi.name, filename, MAX_NR_NAME);
+        strncpy(fi.generated_name, filename, MAX_NR_GENERATED_NAME);
+    }
+
+    memset(&sfc, 0, sizeof(sfc));
+    sfc.fi = &fi;
+    sfc.ctx = ts->ctx;
+    sfc.size = MAX_BUFFER_LEN;
+    list_init(&sfc.peak_head);
+    list_init(&sfc.typedef_info_head);
+
+    token_init(&sfc);
+
+    while (1) {
+        line = sfc.line;
+        col = sfc.offset + 1;
+        token_sym = get_token(&sfc, &sym);
+        if (token_sym == -ENODATA)
+            break;
+
+        token_stream_append(ts, token_sym, sym, line, col, sym ? sym->len : 1,
+                            sfc.offset);
+    }
+
+    /* Append EOF terminal token with sym_dump */
+    token_stream_append(ts, sym_dump, NULL, sfc.line, sfc.offset + 1, 0,
+                        sfc.offset);
+
+    return 0;
+}
+
+struct osc_token *tok_peek(struct token_stream *ts, size_t lookahead)
+{
+    size_t target_idx = 0;
+
+    if (unlikely(!ts || ts->count == 0))
+        return NULL;
+
+    target_idx = ts->pos + lookahead;
+    if (target_idx >= ts->count)
+        return &ts->tokens[ts->count - 1]; /* EOF token */
+
+    return &ts->tokens[target_idx];
+}
+
+struct osc_token *tok_consume(struct token_stream *ts)
+{
+    struct osc_token *tok = NULL;
+
+    if (unlikely(!ts || ts->pos >= ts->count))
+        return NULL;
+
+    tok = &ts->tokens[ts->pos];
+    if (tok->sym != sym_dump)
+        ts->pos++;
+
+    return tok;
+}
+
+bool tok_match(struct token_stream *ts, int sym)
+{
+    struct osc_token *tok = NULL;
+
+    tok = tok_peek(ts, 0);
+    if (tok && tok->sym == sym) {
+        tok_consume(ts);
+        return true;
+    }
+
+    return false;
 }
