@@ -75,6 +75,10 @@ struct ast_type {
     unsigned int ptr_depth; /* 0 for value, 1 for *, 2 for **, etc. */
 
     struct symbol *tag; /* struct or union tag name */
+    bool is_anonymous;
+    struct list_head members; /* Member declarations (struct ast_decl) */
+
+    bool is_function;
     struct ast_type *return_type; /* For function types */
     struct list_head params; /* Parameter declarations */
 
@@ -102,6 +106,13 @@ struct ast_decl {
     struct ast_stmt *body;
 
     struct list_head node; /* Link in declaration lists */
+};
+
+/* C11 _Generic association */
+struct ast_generic_assoc {
+    struct ast_type *type; /* NULL for default */
+    struct ast_expr *expr;
+    struct list_head node;
 };
 
 /* AST Expression */
@@ -173,6 +184,19 @@ struct ast_expr {
         /* EXPR_STMT_EXPR ({ ... }) */
         struct {
             struct ast_stmt *stmt_expr_body;
+        };
+
+        /* EXPR_GENERIC */
+        struct {
+            struct ast_expr *generic_control;
+            struct list_head
+                generic_assoc; /* List of struct ast_generic_assoc */
+        };
+
+        /* EXPR_COMPOUND_LITERAL */
+        struct {
+            struct ast_type *compound_literal_type;
+            struct list_head compound_literal_inits;
         };
     };
 
@@ -262,9 +286,17 @@ struct ast_stmt {
     struct list_head node; /* Link in statement lists */
 };
 
+/* Typedef entry */
+struct ast_typedef_entry {
+    struct symbol *name;
+    struct ast_type *type;
+    struct list_head node;
+};
+
 /* Translation unit */
 struct ast_translation_unit {
     struct list_head decls; /* List of struct ast_decl */
+    struct list_head typedefs; /* List of struct ast_typedef_entry */
     struct osc_context *ctx;
 };
 
@@ -309,6 +341,9 @@ struct ast_expr *parse_expr_precedence(struct token_stream *ts,
 struct ast_stmt *parse_stmt(struct token_stream *ts);
 struct ast_stmt *parse_stmt_compound(struct token_stream *ts);
 struct ast_decl *parse_decl(struct token_stream *ts);
+struct list_head *parse_decl_list(struct token_stream *ts,
+                                  struct list_head *out_list);
 struct ast_type *parse_type(struct token_stream *ts);
+struct ast_translation_unit *parse_translation_unit(struct token_stream *ts);
 
 #endif /* __OSC_AST_H__ */

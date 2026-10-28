@@ -19,6 +19,7 @@ struct ast_type *ast_new_type(struct osc_context *ctx, int base_type,
     type->span = span;
     type->base_type = base_type;
     list_init(&type->params);
+    list_init(&type->members);
 
     return type;
 }
@@ -97,6 +98,7 @@ struct ast_translation_unit *ast_new_translation_unit(struct osc_context *ctx)
 
     tu->ctx = ctx;
     list_init(&tu->decls);
+    list_init(&tu->typedefs);
 
     return tu;
 }
@@ -167,16 +169,21 @@ static enum expr_precedence get_infix_precedence(int sym)
     }
 }
 
+struct list_head *parse_decl_list(struct token_stream *ts,
+                                  struct list_head *out_list);
+
 struct ast_type *parse_type(struct token_stream *ts)
 {
     struct ast_type *type = NULL;
+    struct ast_type *inner_type = NULL;
     struct osc_token *tok = NULL;
     struct osc_span span = { 0 };
+    int base_type = sym_int;
+    struct symbol *tag = NULL;
     unsigned int qualifiers = 0;
     unsigned int osc_attrs = 0;
     unsigned int ptr_depth = 0;
-    int base_type = sym_int;
-    struct symbol *tag = NULL;
+    bool is_anonymous = false;
 
     BUG_ON(!ts, "null token_stream");
 
@@ -202,6 +209,18 @@ struct ast_type *parse_type(struct token_stream *ts)
         } else if (tok->sym == sym__Atomic) {
             qualifiers |= TYPE_QUAL_ATOMIC;
             tok_consume(ts);
+            if (tok_match(ts, sym_left_paren)) {
+                inner_type = parse_type(ts);
+                tok_match(ts, sym_right_paren);
+                if (inner_type) {
+                    base_type = inner_type->base_type;
+                    qualifiers |= inner_type->qualifiers;
+                    osc_attrs |= inner_type->osc_attrs;
+                    ptr_depth += inner_type->ptr_depth;
+                    tag = inner_type->tag;
+                    is_anonymous = inner_type->is_anonymous;
+                }
+            }
         } else if (tok->sym == sym_attr_mut) {
             osc_attrs |= ATTR_FLAGS_MUT;
             tok_consume(ts);
@@ -222,13 +241,48 @@ struct ast_type *parse_type(struct token_stream *ts)
         base_type = tok->sym;
         tok_consume(ts);
 
-        if (base_type == sym_struct) {
+        if (base_type == sym_struct || base_type == sym_union) {
             tok = tok_peek(ts, 0);
             if (tok && tok->sym == sym_id) {
                 tag = tok->symbol;
                 tok_consume(ts);
+            } else if (tok && tok->sym == sym_left_brace) {
+                is_anonymous = true;
+                tag = new_anon_symbol();
+            }
+
+            type = ast_new_type(ts->ctx, base_type, span);
+            type->tag = tag;
+            type->is_anonymous = is_anonymous;
+
+            /* Struct / Union member list { ... } */
+            tok = tok_peek(ts, 0);
+            if (tok && tok->sym == sym_left_brace) {
+                tok_consume(ts); /* consume '{' */
+                while (1) {
+                    tok = tok_peek(ts, 0);
+                    if (!tok || tok->sym == sym_dump ||
+                        tok->sym == sym_right_brace)
+                        break;
+                    if (tok->sym == sym_seq_point) {
+                        tok_consume(ts);
+                        continue;
+                    }
+                    if (is_type_token(tok->sym)) {
+                        parse_decl_list(ts, &type->members);
+                        continue;
+                    }
+                    tok_consume(ts);
+                }
+                tok_match(ts, sym_right_brace);
             }
         }
+    }
+
+    if (!type) {
+        type = ast_new_type(ts->ctx, base_type, span);
+        type->tag = tag;
+        type->is_anonymous = is_anonymous;
     }
 
     /* Parse pointers and pointer-level attributes */
@@ -254,11 +308,9 @@ struct ast_type *parse_type(struct token_stream *ts)
         }
     }
 
-    type = ast_new_type(ts->ctx, base_type, span);
     type->qualifiers = qualifiers;
     type->osc_attrs = osc_attrs;
     type->ptr_depth = ptr_depth;
-    type->tag = tag;
 
     return type;
 }
@@ -313,20 +365,119 @@ static struct symbol *parse_gnu_attribute_cleanup(struct token_stream *ts)
     return cleanup_fn;
 }
 
-struct ast_decl *parse_decl(struct token_stream *ts)
+static struct ast_decl *parse_param_decl(struct token_stream *ts)
 {
-    struct ast_type *type = NULL;
     struct ast_decl *decl = NULL;
+    struct ast_type *base_type = NULL;
+    struct ast_type *param_type = NULL;
     struct osc_token *tok = NULL;
     struct symbol *id = NULL;
-    struct symbol *cleanup_fn = NULL;
+    struct osc_span span = { 0 };
+    unsigned int ptr_depth = 0;
+    unsigned int osc_attrs = 0;
+    unsigned int qualifiers = 0;
+
+    BUG_ON(!ts, "null token_stream");
+
+    tok = tok_peek(ts, 0);
+    if (!tok)
+        return NULL;
+    span = tok->span;
+
+    base_type = parse_type(ts);
+    if (!base_type)
+        return NULL;
+
+    ptr_depth = base_type->ptr_depth;
+    osc_attrs = base_type->osc_attrs;
+    qualifiers = base_type->qualifiers;
+
+    /* Pointers on the parameter declarator */
+    while (1) {
+        tok = tok_peek(ts, 0);
+        if (!tok || tok->sym != sym_aster)
+            break;
+        tok_consume(ts);
+        ptr_depth++;
+
+        tok = tok_peek(ts, 0);
+        if (tok && tok->sym == sym_attr_mut) {
+            osc_attrs |= ATTR_FLAGS_MUT;
+            tok_consume(ts);
+        } else if (tok && tok->sym == sym_attr_brw) {
+            osc_attrs |= ATTR_FLAGS_BRW;
+            tok_consume(ts);
+        } else if (tok && tok->sym == sym_const) {
+            qualifiers |= TYPE_QUAL_CONST;
+            tok_consume(ts);
+        }
+    }
+
+    /* Identifier (optional for abstract declarators like int *) */
+    tok = tok_peek(ts, 0);
+    if (tok && tok->sym == sym_id) {
+        id = tok->symbol;
+        tok_consume(ts);
+    }
+
+    if (ptr_depth == base_type->ptr_depth &&
+        qualifiers == base_type->qualifiers &&
+        osc_attrs == base_type->osc_attrs) {
+        param_type = base_type;
+    } else {
+        param_type = ast_new_type(ts->ctx, base_type->base_type, span);
+        param_type->qualifiers = qualifiers;
+        param_type->osc_attrs = osc_attrs;
+        param_type->ptr_depth = ptr_depth;
+        param_type->tag = base_type->tag;
+        param_type->is_anonymous = base_type->is_anonymous;
+    }
+
+    /* Check for array parameter: e.g. char argv[] */
+    if (tok_match(ts, sym_left_sq_brace)) {
+        if (param_type == base_type) {
+            param_type = ast_new_type(ts->ctx, base_type->base_type, span);
+            param_type->qualifiers = qualifiers;
+            param_type->osc_attrs = osc_attrs;
+            param_type->ptr_depth = ptr_depth;
+            param_type->tag = base_type->tag;
+            param_type->is_anonymous = base_type->is_anonymous;
+        }
+        param_type->is_array = true;
+        tok = tok_peek(ts, 0);
+        if (tok && (tok->sym == sym_numeric_constant || tok->sym == sym_id) &&
+            tok->symbol) {
+            param_type->array_elements = atoi(tok->symbol->name);
+            tok_consume(ts);
+        }
+        tok_match(ts, sym_right_sq_brace);
+    }
+
+    decl = ast_new_decl(ts->ctx, param_type, id, span);
+    return decl;
+}
+
+struct list_head *parse_decl_list(struct token_stream *ts,
+                                  struct list_head *out_list)
+{
+    struct ast_decl *decl = NULL;
+    struct ast_decl *param_decl = NULL;
+    struct ast_type *base_type = NULL;
+    struct ast_type *decl_type = NULL;
     struct ast_expr *init_expr = NULL;
+    struct symbol *cleanup_fn = NULL;
+    struct symbol *id = NULL;
+    struct osc_token *tok = NULL;
     struct osc_span span = { 0 };
     int storage_class = 0;
     bool is_inline = false;
     bool is_noreturn = false;
+    unsigned int ptr_depth = 0;
+    unsigned int osc_attrs = 0;
+    unsigned int qualifiers = 0;
 
     BUG_ON(!ts, "null token_stream");
+    BUG_ON(!out_list, "null out_list");
 
     tok = tok_peek(ts, 0);
     if (tok)
@@ -340,6 +491,9 @@ struct ast_decl *parse_decl(struct token_stream *ts)
 
         if (range_in_sym(storage_class, tok->sym)) {
             storage_class = tok->sym;
+            tok_consume(ts);
+        } else if (tok->sym == sym_typedef) {
+            storage_class = sym_typedef;
             tok_consume(ts);
         } else if (tok->sym == sym_inline || tok->sym == sym___inline__) {
             is_inline = true;
@@ -356,34 +510,180 @@ struct ast_decl *parse_decl(struct token_stream *ts)
     if (tok_peek(ts, 0) && tok_peek(ts, 0)->sym == sym___attribute__)
         cleanup_fn = parse_gnu_attribute_cleanup(ts);
 
-    type = parse_type(ts);
+    base_type = parse_type(ts);
 
-    /* GNU attributes after type / before name */
-    if (!cleanup_fn && tok_peek(ts, 0) &&
-        tok_peek(ts, 0)->sym == sym___attribute__)
-        cleanup_fn = parse_gnu_attribute_cleanup(ts);
-
+    /* Check for standalone struct/union declaration with no declarator: struct foo { ... }; */
     tok = tok_peek(ts, 0);
-    if (tok && tok->sym == sym_id) {
-        id = tok->symbol;
+    if (tok && tok->sym == sym_seq_point) {
         tok_consume(ts);
+        decl = ast_new_decl(ts->ctx, base_type, base_type->tag, span);
+        decl->storage_class = storage_class;
+        list_add_tail(&decl->node, out_list);
+        return out_list;
     }
 
-    /* GNU attributes after name */
-    if (!cleanup_fn && tok_peek(ts, 0) &&
-        tok_peek(ts, 0)->sym == sym___attribute__)
-        cleanup_fn = parse_gnu_attribute_cleanup(ts);
+    /* Parse comma-separated declarators */
+    while (1) {
+        ptr_depth = base_type->ptr_depth;
+        osc_attrs = base_type->osc_attrs;
+        qualifiers = base_type->qualifiers;
+        id = NULL;
+        init_expr = NULL;
 
-    /* Optional initializer */
-    if (tok_match(ts, sym_eq))
-        init_expr = parse_expr_precedence(ts, PREC_ASSIGN);
+        /* Pointers on this declarator */
+        while (1) {
+            tok = tok_peek(ts, 0);
+            if (!tok || tok->sym != sym_aster)
+                break;
+            tok_consume(ts);
+            ptr_depth++;
 
-    decl = ast_new_decl(ts->ctx, type, id, span);
-    decl->storage_class = storage_class;
-    decl->is_inline = is_inline;
-    decl->is_noreturn = is_noreturn;
-    decl->cleanup_fn = cleanup_fn;
-    decl->init = init_expr;
+            tok = tok_peek(ts, 0);
+            if (tok && tok->sym == sym_attr_mut) {
+                osc_attrs |= ATTR_FLAGS_MUT;
+                tok_consume(ts);
+            } else if (tok && tok->sym == sym_attr_brw) {
+                osc_attrs |= ATTR_FLAGS_BRW;
+                tok_consume(ts);
+            } else if (tok && tok->sym == sym_const) {
+                qualifiers |= TYPE_QUAL_CONST;
+                tok_consume(ts);
+            }
+        }
+
+        /* GNU attributes before name */
+        if (!cleanup_fn && tok_peek(ts, 0) &&
+            tok_peek(ts, 0)->sym == sym___attribute__)
+            cleanup_fn = parse_gnu_attribute_cleanup(ts);
+
+        /* Identifier */
+        tok = tok_peek(ts, 0);
+        if (tok && tok->sym == sym_id) {
+            id = tok->symbol;
+            tok_consume(ts);
+        }
+
+        /* Build type for this declarator */
+        if (ptr_depth == base_type->ptr_depth &&
+            qualifiers == base_type->qualifiers &&
+            osc_attrs == base_type->osc_attrs) {
+            decl_type = base_type;
+        } else {
+            decl_type = ast_new_type(ts->ctx, base_type->base_type, span);
+            decl_type->qualifiers = qualifiers;
+            decl_type->osc_attrs = osc_attrs;
+            decl_type->ptr_depth = ptr_depth;
+            decl_type->tag = base_type->tag;
+            decl_type->is_anonymous = base_type->is_anonymous;
+        }
+
+        /* Check for array [ ... ] */
+        if (tok_match(ts, sym_left_sq_brace)) {
+            if (decl_type == base_type) {
+                decl_type = ast_new_type(ts->ctx, base_type->base_type, span);
+                decl_type->qualifiers = qualifiers;
+                decl_type->osc_attrs = osc_attrs;
+                decl_type->ptr_depth = ptr_depth;
+                decl_type->tag = base_type->tag;
+                decl_type->is_anonymous = base_type->is_anonymous;
+            }
+            decl_type->is_array = true;
+            tok = tok_peek(ts, 0);
+            if (tok &&
+                (tok->sym == sym_numeric_constant || tok->sym == sym_id) &&
+                tok->symbol) {
+                decl_type->array_elements = atoi(tok->symbol->name);
+                tok_consume(ts);
+            }
+            tok_match(ts, sym_right_sq_brace);
+        }
+
+        /* Check for function declarator: ( param_list ) */
+        if (tok_match(ts, sym_left_paren)) {
+            if (decl_type == base_type) {
+                decl_type = ast_new_type(ts->ctx, base_type->base_type, span);
+                decl_type->qualifiers = qualifiers;
+                decl_type->osc_attrs = osc_attrs;
+                decl_type->ptr_depth = ptr_depth;
+                decl_type->tag = base_type->tag;
+                decl_type->is_anonymous = base_type->is_anonymous;
+            }
+            decl_type->is_function = true;
+            decl_type->return_type = base_type;
+
+            while (1) {
+                tok = tok_peek(ts, 0);
+                if (!tok || tok->sym == sym_right_paren || tok->sym == sym_dump)
+                    break;
+
+                /* (void) parameter */
+                if (tok->sym == sym_void && tok_peek(ts, 1) &&
+                    tok_peek(ts, 1)->sym == sym_right_paren) {
+                    tok_consume(ts);
+                    break;
+                }
+
+                param_decl = parse_param_decl(ts);
+                if (param_decl)
+                    list_add_tail(&param_decl->node, &decl_type->params);
+
+                if (tok_peek(ts, 0) && tok_peek(ts, 0)->sym == sym_comma)
+                    tok_consume(ts);
+                else
+                    break;
+            }
+            tok_match(ts, sym_right_paren);
+        }
+
+        /* GNU attributes after name */
+        if (!cleanup_fn && tok_peek(ts, 0) &&
+            tok_peek(ts, 0)->sym == sym___attribute__)
+            cleanup_fn = parse_gnu_attribute_cleanup(ts);
+
+        /* Initializer = expr */
+        if (tok_match(ts, sym_eq))
+            init_expr = parse_expr_precedence(ts, PREC_ASSIGN);
+
+        decl = ast_new_decl(ts->ctx, decl_type, id, span);
+        decl->storage_class = storage_class;
+        decl->is_inline = is_inline;
+        decl->is_noreturn = is_noreturn;
+        decl->cleanup_fn = cleanup_fn;
+        decl->init = init_expr;
+
+        /* Check for function definition body { ... } */
+        if (decl_type->is_function && tok_peek(ts, 0) &&
+            tok_peek(ts, 0)->sym == sym_left_brace) {
+            decl->body = parse_stmt_compound(ts);
+            list_add_tail(&decl->node, out_list);
+            return out_list;
+        }
+
+        list_add_tail(&decl->node, out_list);
+
+        /* Comma separates declarators */
+        if (tok_match(ts, sym_comma))
+            continue;
+
+        tok_match(ts, sym_seq_point);
+        break;
+    }
+
+    return out_list;
+}
+
+struct ast_decl *parse_decl(struct token_stream *ts)
+{
+    struct list_head decl_list;
+    struct ast_decl *decl = NULL;
+
+    BUG_ON(!ts, "null token_stream");
+
+    list_init(&decl_list);
+    parse_decl_list(ts, &decl_list);
+
+    if (!list_empty(&decl_list))
+        decl = list_first_entry(&decl_list, struct ast_decl, node);
 
     return decl;
 }
@@ -392,10 +692,15 @@ static struct ast_expr *parse_prefix(struct token_stream *ts)
 {
     struct ast_expr *expr = NULL;
     struct ast_expr *operand = NULL;
+    struct ast_expr *control = NULL;
+    struct ast_expr *assoc_expr = NULL;
     struct ast_stmt *body = NULL;
     struct ast_type *cast_type = NULL;
+    struct ast_type *assoc_type = NULL;
+    struct ast_generic_assoc *assoc = NULL;
     struct osc_token *tok = NULL;
     struct osc_token *next = NULL;
+    struct osc_token *tok_gen = NULL;
 
     BUG_ON(!ts, "null token_stream");
 
@@ -418,6 +723,49 @@ static struct ast_expr *parse_prefix(struct token_stream *ts)
         tok = tok_consume(ts);
         expr = ast_new_expr(ts->ctx, EXPR_IDENT, tok->span);
         expr->id = tok->symbol;
+        return expr;
+    }
+
+    /* C11 _Generic selection */
+    if (tok->sym == sym__Generic) {
+        tok_gen = tok_consume(ts);
+        tok_match(ts, sym_left_paren);
+        control = parse_expr_precedence(ts, PREC_ASSIGN);
+        tok_match(ts, sym_comma);
+
+        expr = ast_new_expr(ts->ctx, EXPR_GENERIC, tok_gen->span);
+        expr->generic_control = control;
+        list_init(&expr->generic_assoc);
+
+        while (1) {
+            tok = tok_peek(ts, 0);
+            if (!tok || tok->sym == sym_dump || tok->sym == sym_right_paren)
+                break;
+
+            if (tok->sym == sym_default) {
+                tok_consume(ts);
+                assoc_type = NULL;
+            } else {
+                assoc_type = parse_type(ts);
+            }
+
+            tok_match(ts, sym_colon);
+            assoc_expr = parse_expr_precedence(ts, PREC_ASSIGN);
+
+            assoc = osc_arena_zalloc(&ts->ctx->arena, sizeof(*assoc));
+            BUG_ON(!assoc, "arena zalloc failed for generic_assoc");
+            assoc->type = assoc_type;
+            assoc->expr = assoc_expr;
+            list_init(&assoc->node);
+            list_add_tail(&assoc->node, &expr->generic_assoc);
+
+            if (tok_peek(ts, 0) && tok_peek(ts, 0)->sym == sym_comma)
+                tok_consume(ts);
+            else
+                break;
+        }
+
+        tok_match(ts, sym_right_paren);
         return expr;
     }
 
@@ -750,8 +1098,12 @@ struct ast_stmt *parse_stmt_compound(struct token_stream *ts)
     struct parse_scope_entry *new_entry = NULL;
     struct ast_stmt *root_compound = NULL;
     struct ast_stmt *stmt = NULL;
+    struct ast_stmt *child_stmt = NULL;
+    struct ast_decl *d = NULL;
+    struct ast_decl *n = NULL;
     struct osc_token *tok = NULL;
     struct osc_span span = { 0 };
+    struct list_head decl_list;
 
     BUG_ON(!ts, "null token_stream");
 
@@ -799,7 +1151,24 @@ struct ast_stmt *parse_stmt_compound(struct token_stream *ts)
             continue;
         }
 
-        /* Parse statement or declaration */
+        /* Variable declaration (supports multi-declarator comma lists) */
+        if (is_type_token(tok->sym)) {
+            list_init(&decl_list);
+            parse_decl_list(ts, &decl_list);
+
+            list_for_each_entry_safe(d, n, &decl_list, node)
+            {
+                list_del(&d->node);
+                list_add_tail(&d->node, &scope_stack->compound->decls);
+
+                child_stmt = ast_new_stmt(ts->ctx, STMT_DECL, d->span);
+                child_stmt->stmt_decl = d;
+                list_add_tail(&child_stmt->node, &scope_stack->compound->stmts);
+            }
+            continue;
+        }
+
+        /* Parse statement */
         stmt = parse_stmt(ts);
         if (stmt) {
             list_add_tail(&stmt->node, &scope_stack->compound->stmts);
@@ -820,6 +1189,7 @@ struct ast_stmt *parse_stmt(struct token_stream *ts)
     struct ast_stmt *body = NULL;
     struct ast_stmt *init_stmt = NULL;
     struct ast_decl *decl = NULL;
+    struct ast_decl *d = NULL;
     struct ast_expr *cond = NULL;
     struct ast_expr *init_expr = NULL;
     struct ast_expr *step_expr = NULL;
@@ -829,6 +1199,7 @@ struct ast_stmt *parse_stmt(struct token_stream *ts)
     struct osc_token *next = NULL;
     struct osc_token *label_tok = NULL;
     struct osc_span span = { 0 };
+    struct list_head decl_list;
 
     BUG_ON(!ts, "null token_stream");
 
@@ -1047,12 +1418,15 @@ struct ast_stmt *parse_stmt(struct token_stream *ts)
 
     /* Variable declaration statement */
     if (is_type_token(tok->sym)) {
-        decl = parse_decl(ts);
-        tok_match(ts, sym_seq_point);
+        list_init(&decl_list);
+        parse_decl_list(ts, &decl_list);
 
-        stmt = ast_new_stmt(ts->ctx, STMT_DECL, decl->span);
-        stmt->stmt_decl = decl;
-        return stmt;
+        if (!list_empty(&decl_list)) {
+            d = list_first_entry(&decl_list, struct ast_decl, node);
+            stmt = ast_new_stmt(ts->ctx, STMT_DECL, d->span);
+            stmt->stmt_decl = d;
+            return stmt;
+        }
     }
 
     /* Expression statement */
@@ -1064,4 +1438,43 @@ struct ast_stmt *parse_stmt(struct token_stream *ts)
     }
 
     return stmt;
+}
+
+struct ast_translation_unit *parse_translation_unit(struct token_stream *ts)
+{
+    struct ast_translation_unit *tu = NULL;
+    struct osc_token *tok = NULL;
+
+    BUG_ON(!ts, "null token_stream");
+
+    tu = ast_new_translation_unit(ts->ctx);
+
+    while (1) {
+        tok = tok_peek(ts, 0);
+        if (!tok || tok->sym == sym_dump)
+            break;
+
+        /* Empty statement ';' at file scope */
+        if (tok->sym == sym_seq_point) {
+            tok_consume(ts);
+            continue;
+        }
+
+        /* Top-level C11 _Static_assert */
+        if (tok->sym == sym__Static_assert) {
+            parse_static_assert_stmt(ts);
+            continue;
+        }
+
+        /* Top-level declaration or function definition */
+        if (is_type_token(tok->sym)) {
+            parse_decl_list(ts, &tu->decls);
+            continue;
+        }
+
+        /* Unknown or unexpected top-level token, consume to avoid hang */
+        tok_consume(ts);
+    }
+
+    return tu;
 }

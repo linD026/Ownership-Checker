@@ -53,6 +53,7 @@ enum {
     sym_long_double,
     sym_float,
     sym_struct,
+    sym_union,
     sym_void,
 #define sym_type_end sym_void
     /* sym type end - void */

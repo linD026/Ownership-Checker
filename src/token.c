@@ -109,6 +109,7 @@ static struct symbol sym_table[] = {
     __SYM_ENTRY(long double, sym_long_double),
     SYM_ENTRY(float),
     SYM_ENTRY(struct),
+    SYM_ENTRY(union),
     SYM_ENTRY(void),
 
     /* other keywords */
@@ -770,6 +771,14 @@ int token_stream_tokenize_file(struct token_stream *ts, FILE *fp,
         token_sym = get_token(&sfc, &sym);
         if (token_sym == -ENODATA)
             break;
+
+        /* Classify numeric literals (integers and floats) */
+        if (token_sym == sym_id && sym && sym->name &&
+            ((sym->name[0] >= '0' && sym->name[0] <= '9') ||
+             (sym->name[0] == '.' && sym->name[1] >= '0' &&
+              sym->name[1] <= '9'))) {
+            token_sym = sym_numeric_constant;
+        }
 
         /* Merge adjacent multi-character operator tokens in stream */
         if (ts->count > 0) {
