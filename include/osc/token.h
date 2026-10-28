@@ -92,6 +92,8 @@ enum {
     sym_ge, // >=
     sym_bit_left, // <<
     sym_bit_right, // >>
+    sym_inc, // ++
+    sym_dec, // --
 
 /* sym_table end */
 
@@ -104,6 +106,8 @@ enum {
     sym_left_sq_brace, // []
     sym_right_sq_brace,
     sym_aster, // *
+    sym_slash, // /
+    sym_percent, // %
     sym_lt, // <
     sym_gt, // >
     sym_eq, // =
@@ -112,6 +116,11 @@ enum {
     sym_quotation, // "
     sym_bit_and, // &
     sym_bit_or, // |
+    sym_bit_xor, // ^
+    sym_bit_not, // ~
+    sym_exclaim, // !
+    sym_query, // ?
+    sym_colon, // :
     sym_comma, // ,
     sym_dot, // .
     sym_seq_point, // ;

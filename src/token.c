@@ -694,6 +694,7 @@ int token_stream_tokenize_file(struct token_stream *ts, FILE *fp,
 {
     struct file_info fi;
     struct scan_file_control sfc;
+    struct osc_token *prev = NULL;
     struct symbol *sym = NULL;
     int token_sym = 0;
     unsigned int col = 0;
@@ -724,6 +725,57 @@ int token_stream_tokenize_file(struct token_stream *ts, FILE *fp,
         token_sym = get_token(&sfc, &sym);
         if (token_sym == -ENODATA)
             break;
+
+        /* Merge adjacent multi-character operator tokens in stream */
+        if (ts->count > 0) {
+            prev = &ts->tokens[ts->count - 1];
+
+            /* Merge - and > into -> */
+            if (prev->sym == sym_minus && token_sym == sym_gt &&
+                prev->span.line == line &&
+                prev->span.col + prev->span.len == col) {
+                prev->sym = sym_ptr_assign;
+                prev->symbol = &sym_table[sym_ptr_assign];
+                prev->span.len = 2;
+                continue;
+            }
+            /* Merge + and + into ++ */
+            if (prev->sym == sym_add && token_sym == sym_add &&
+                prev->span.line == line &&
+                prev->span.col + prev->span.len == col) {
+                prev->sym = sym_inc;
+                prev->symbol = &sym_table[sym_inc];
+                prev->span.len = 2;
+                continue;
+            }
+            /* Merge - and - into -- */
+            if (prev->sym == sym_minus && token_sym == sym_minus &&
+                prev->span.line == line &&
+                prev->span.col + prev->span.len == col) {
+                prev->sym = sym_dec;
+                prev->symbol = &sym_table[sym_dec];
+                prev->span.len = 2;
+                continue;
+            }
+            /* Merge < and < into << */
+            if (prev->sym == sym_lt && token_sym == sym_lt &&
+                prev->span.line == line &&
+                prev->span.col + prev->span.len == col) {
+                prev->sym = sym_bit_left;
+                prev->symbol = &sym_table[sym_bit_left];
+                prev->span.len = 2;
+                continue;
+            }
+            /* Merge > and > into >> */
+            if (prev->sym == sym_gt && token_sym == sym_gt &&
+                prev->span.line == line &&
+                prev->span.col + prev->span.len == col) {
+                prev->sym = sym_bit_right;
+                prev->symbol = &sym_table[sym_bit_right];
+                prev->span.len = 2;
+                continue;
+            }
+        }
 
         token_stream_append(ts, token_sym, sym, line, col, sym ? sym->len : 1,
                             sfc.offset);

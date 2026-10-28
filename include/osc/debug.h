@@ -191,6 +191,10 @@ static __always_inline char debug_sym_one_char(int sym)
         return ']';
     case sym_aster:
         return '*';
+    case sym_slash:
+        return '/';
+    case sym_percent:
+        return '%';
     case sym_lt:
         return '<';
     case sym_gt:
@@ -209,6 +213,16 @@ static __always_inline char debug_sym_one_char(int sym)
         return '&';
     case sym_bit_or:
         return '|';
+    case sym_bit_xor:
+        return '^';
+    case sym_bit_not:
+        return '~';
+    case sym_exclaim:
+        return '!';
+    case sym_query:
+        return '?';
+    case sym_colon:
+        return ':';
     case sym_dot:
         return '.';
     case sym_seq_point:

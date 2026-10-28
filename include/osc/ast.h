@@ -279,4 +279,36 @@ struct ast_stmt *ast_new_stmt(struct osc_context *ctx, enum ast_stmt_kind kind,
                               struct osc_span span);
 struct ast_translation_unit *ast_new_translation_unit(struct osc_context *ctx);
 
+/* Operator Precedence levels for Pratt parser */
+enum expr_precedence {
+    PREC_NONE = 0,
+    PREC_COMMA, /* , */
+    PREC_ASSIGN, /* = += -= etc. (right-associative) */
+    PREC_TERNARY, /* ? : (right-associative) */
+    PREC_LOGICAL_OR, /* || */
+    PREC_LOGICAL_AND, /* && */
+    PREC_BIT_OR, /* | */
+    PREC_BIT_XOR, /* ^ */
+    PREC_BIT_AND, /* & */
+    PREC_EQUALITY, /* == != */
+    PREC_RELATIONAL, /* < <= > >= */
+    PREC_SHIFT, /* << >> */
+    PREC_ADDITIVE, /* + - */
+    PREC_MULTIPLICATIVE, /* * / % */
+    PREC_PREFIX, /* ++ -- + - ! ~ * & sizeof _Alignof */
+    PREC_POSTFIX, /* () [] . -> */
+    PREC_PRIMARY,
+};
+
+/* Pratt Expression Parser */
+struct ast_expr *parse_expr(struct token_stream *ts);
+struct ast_expr *parse_expr_precedence(struct token_stream *ts,
+                                       enum expr_precedence min_prec);
+
+/* Statement and Declaration Parsers */
+struct ast_stmt *parse_stmt(struct token_stream *ts);
+struct ast_stmt *parse_stmt_compound(struct token_stream *ts);
+struct ast_decl *parse_decl(struct token_stream *ts);
+struct ast_type *parse_type(struct token_stream *ts);
+
 #endif /* __OSC_AST_H__ */
