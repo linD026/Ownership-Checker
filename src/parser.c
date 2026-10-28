@@ -1,4 +1,5 @@
 #include <osc/parser.h>
+#include <osc/context.h>
 #include <osc/fork.h>
 #include <osc/check_list.h>
 #include <osc/compiler.h>
@@ -1156,14 +1157,19 @@ static void scan_file(struct scan_file_control *sfc)
 
 int parser(struct file_info *fi)
 {
-    struct scan_file_control sfc = {
-        .fi = fi,
-        .size = MAX_BUFFER_LEN,
-        .offset = 0,
-        .line = 0,
-        .peak = 0,
-        .function = NULL,
-    };
+    struct osc_context ctx;
+    struct scan_file_control sfc;
+
+    osc_context_init(&ctx, fi, OSC_MODE_AUTO);
+    memset(&sfc, 0, sizeof(sfc));
+    sfc.fi = fi;
+    sfc.ctx = &ctx;
+    sfc.size = MAX_BUFFER_LEN;
+    sfc.offset = 0;
+    sfc.line = 0;
+    sfc.peak = 0;
+    sfc.function = NULL;
+    ctx.sfc = &sfc;
 
     /*
      * In this case, we have three names for the files,
@@ -1184,6 +1190,7 @@ int parser(struct file_info *fi)
     rewind(fi->file);
     scan_file(&sfc);
     fclose(fi->file);
+    osc_context_destroy(&ctx);
 
     return 0;
 }

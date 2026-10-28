@@ -114,8 +114,11 @@ struct file_info {
     struct list_head struct_head;
 };
 
+struct osc_context;
+
 struct scan_file_control {
     struct file_info *fi;
+    struct osc_context *ctx;
 
     char name[MAX_NR_GENERATED_NAME];
 

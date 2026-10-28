@@ -84,6 +84,7 @@ static struct symbol sym_table[] = {
     SYM_ENTRY(register),
     SYM_ENTRY(static),
     SYM_ENTRY(extern),
+    SYM_ENTRY(_Thread_local),
 
     /* qualifier type */
     SYM_ENTRY(const),
@@ -121,12 +122,27 @@ static struct symbol sym_table[] = {
     SYM_ENTRY(return),
     SYM_ENTRY(true),
     SYM_ENTRY(false),
+    SYM_ENTRY(inline),
+    __SYM_ENTRY(__inline__, sym___inline__),
+    SYM_ENTRY(_Noreturn),
+    SYM_ENTRY(_Alignas),
+    SYM_ENTRY(_Alignof),
+    SYM_ENTRY(_Static_assert),
+    SYM_ENTRY(_Generic),
+    SYM_ENTRY(asm),
+    __SYM_ENTRY(__asm__, sym___asm__),
+    __SYM_ENTRY(__attribute__, sym___attribute__),
 
     /* sym id start */
     __SYM_ENTRY(->, sym_ptr_assign),
     __SYM_ENTRY(||, sym_logic_or),
     __SYM_ENTRY(&&, sym_logic_and),
     __SYM_ENTRY(==, sym_equal),
+    __SYM_ENTRY(!=, sym_not_equal),
+    __SYM_ENTRY(<=, sym_le),
+    __SYM_ENTRY(>=, sym_ge),
+    __SYM_ENTRY(<<, sym_bit_left),
+    __SYM_ENTRY(>>, sym_bit_right),
 };
 
 static int __check_sym_one_char(struct scan_file_control *sfc)

@@ -22,8 +22,9 @@ enum {
     sym_register,
     sym_static,
     sym_extern,
-#define sym_storage_class_end sym_extern
-/* sym storage class end - extern */
+    sym__Thread_local,
+#define sym_storage_class_end sym__Thread_local
+/* sym storage class end - _Thread_local */
 
 /* sym qualifier class start - const */
 #define sym_qualifier_start sym_const
@@ -67,6 +68,16 @@ enum {
     sym_return,
     sym_true, /* C23 keyword true, false */
     sym_false,
+    sym_inline,
+    sym___inline__,
+    sym__Noreturn,
+    sym__Alignas,
+    sym__Alignof,
+    sym__Static_assert,
+    sym__Generic,
+    sym_asm,
+    sym___asm__,
+    sym___attribute__,
 
 /* Decode the id until the symbol is between sym_id_start to sym_id_end. */
 /* sym id start - ptr_assign */
@@ -75,6 +86,11 @@ enum {
     sym_logic_or, // ||
     sym_logic_and, // &&
     sym_equal, // ==
+    sym_not_equal, // !=
+    sym_le, // <=
+    sym_ge, // >=
+    sym_bit_left, // <<
+    sym_bit_right, // >>
 
 /* sym_table end */
 
@@ -116,6 +132,19 @@ enum {
 
 struct scan_file_control;
 struct symbol;
+
+struct osc_span {
+    unsigned long line;
+    unsigned int col;
+    unsigned int len;
+    unsigned long offset;
+};
+
+struct osc_token {
+    int sym;
+    struct symbol *symbol;
+    struct osc_span span;
+};
 
 int token_init(struct scan_file_control *sfc);
 void symbol_id_container_release(void);
