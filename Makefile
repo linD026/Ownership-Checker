@@ -59,7 +59,7 @@ test:
 	bash ./tests/run_tests.sh $(PWD)
 
 clean:
-	$(OSC_RM) -f src/*.o
+	$(OSC_RM) -f $(OBJ)
 	$(OSC_RM) -f $(BIN)
 
 cscope:
@@ -68,7 +68,7 @@ cscope:
 
 indent:
 	clang-format -i include/*/*.[ch]
-	clang-format -i src/*.[ch]
+	clang-format -i src/*.[ch] src/*/*.[ch]
 
 ifeq ($(quiet), 1)
 .SILENT:
