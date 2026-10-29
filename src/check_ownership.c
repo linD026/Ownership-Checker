@@ -506,7 +506,7 @@ int run_dataflow_analysis(struct osc_context *ctx, struct cfg_function *fn,
  * @msg: Description of violation
  */
 void osc_report_span(struct osc_context *ctx, struct osc_span span,
-                            const char *msg)
+                     const char *msg)
 {
     const char *fname = "<input>";
 

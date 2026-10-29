@@ -79,7 +79,7 @@ struct ast_decl *osc_find_decl(struct osc_context *ctx, struct symbol *sym);
 
 /* Report Helper functions */
 void osc_report_span(struct osc_context *ctx, struct osc_span span,
-                            const char *msg);
+                     const char *msg);
 
 /* Legacy Checkers (Preserved for single-pass parser compatibility) */
 struct scan_file_control;
