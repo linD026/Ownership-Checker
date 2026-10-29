@@ -26,7 +26,6 @@ struct osc_data {
     enum osc_mode mode;
     int dump_ast;
     int dump_cfg;
-    int legacy_parser;
 };
 
 static struct osc_data osc_data = {
@@ -129,7 +128,6 @@ static void osc_getopt(struct osc_data *data, int argc, char *argv[])
         { "mode", required_argument, 0, 'm' },
         { "dump-ast", no_argument, 0, 1001 },
         { "dump-cfg", no_argument, 0, 1002 },
-        { "legacy", no_argument, 0, 1003 },
         { "help", no_argument, 0, 'h' },
         { 0, 0, 0, 0 }
     };
@@ -167,9 +165,6 @@ static void osc_getopt(struct osc_data *data, int argc, char *argv[])
             break;
         case 1002:
             data->dump_cfg = 1;
-            break;
-        case 1003:
-            data->legacy_parser = 1;
             break;
         case 'h':
         default:
@@ -233,7 +228,7 @@ static bool tu_has_osc_attrs(struct ast_translation_unit *tu)
  *
  * Return: Number of diagnostic errors encountered, or negative errno on failure.
  */
-static int parser_run_pipeline(struct file_info *fi, struct osc_data *data)
+int parser_run_pipeline(struct file_info *fi, struct osc_data *data)
 {
     struct osc_context ctx;
     struct token_stream ts;
@@ -310,12 +305,7 @@ int main(int argc, char *argv[])
     list_for_each (&osc_data.file_head) {
         struct file_info *fi = container_of(curr, struct file_info, node);
         print("OSC Analyzes file: %s\n", fi->full_name);
-        if (osc_data.legacy_parser) {
-            parser(fi);
-        } else {
-            parser_run_pipeline(fi, &osc_data);
-            parser(fi);
-        }
+        parser_run_pipeline(fi, &osc_data);
     }
 
     symbol_id_container_release();

@@ -24,7 +24,6 @@ SRC+=src/linearize.c
 SRC+=src/object_ptr.c
 SRC+=src/debug.c
 SRC+=src/token.c
-SRC+=src/parser.c
 SRC+=src/check_ownership.c
 SRC+=src/checkers/osc.c
 SRC+=src/checkers/linux.c

@@ -149,6 +149,7 @@ struct scope_iter_data {
 #define for_each_var(scope, var) \
     list_for_each_entry (var, &scope->scope_var_head, scope_node)
 
-int parser(struct file_info *fi);
+struct osc_data;
+int parser_run_pipeline(struct file_info *fi, struct osc_data *data);
 
 #endif /* __OSC_PARSER_H__ */
