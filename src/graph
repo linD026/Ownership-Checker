@@ -41,8 +41,8 @@ src dir
     - parse the basic C language
 - debug.c
     - print the human readable debug info
-- fork.c
-    - store, fork, and join the function state which also includes the var state
+- fork.c (DEPRECATED & REMOVED)
+    - Replaced by CFG basic blocks and forward dataflow fixpoint solver
 - check_ownership.c
     - check the attribute of pointer is violated the rule
 - osc.c

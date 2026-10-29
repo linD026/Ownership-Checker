@@ -92,9 +92,6 @@ struct function {
     struct object object;
     struct list_head parameter_head;
 
-    int nr_state;
-    struct list_head state_head;
-
     /* For struct file_info */
     struct list_head node;
 };
@@ -134,20 +131,13 @@ struct scan_file_control {
 
     struct list_head typedef_info_head;
 
-    /* for the if statement (control dependence). */
+    /* for the function scope tracking */
     struct function *function;
-    struct function *real_function;
 };
 
 struct scope_iter_data {
     struct scope *scope;
     struct variable *var;
-};
-
-struct function_state {
-    int id;
-    struct function function;
-    struct list_head state_node;
 };
 
 #define for_each_var_in_scopes(func, iter)                                \

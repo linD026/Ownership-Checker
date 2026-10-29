@@ -1,6 +1,5 @@
 #include <osc/parser.h>
 #include <osc/context.h>
-#include <osc/fork.h>
 #include <osc/check_list.h>
 #include <osc/compiler.h>
 #include <osc/object_ptr.h>
@@ -611,6 +610,18 @@ static int decode_function_scope(struct scan_file_control *sfc);
 static int decode_new_block(struct scan_file_control *sfc, int sym,
                             struct symbol *symbol);
 
+/**
+ * decode_if - Parse legacy if/else-if/else control statements
+ * @sfc: Scan file control parsing context
+ * @symbol: Current symbol descriptor pointer
+ * @sym: Current token category identifier
+ *
+ * Scans the conditional expression and branch statement blocks.
+ * Branch dataflow analysis is now handled natively by CFG linearization
+ * and the forward dataflow fixpoint solver without exponential state cloning.
+ *
+ * Return: Next unconsumed token identifier.
+ */
 static int decode_if(struct scan_file_control *sfc, struct symbol *symbol,
                      int sym)
 {
@@ -625,7 +636,6 @@ static int decode_if(struct scan_file_control *sfc, struct symbol *symbol,
     sym = get_token(sfc, &symbol);
     debug_token(sfc, sym, symbol);
     if (sym == sym_left_brace) {
-        fork_and_switch_function_state(sfc);
         new_scope(sfc);
         sym = decode_new_block(sfc, sym, symbol);
     } else {
@@ -653,7 +663,6 @@ peak_else:
             sym = get_token(sfc, &symbol);
             debug_token(sfc, sym, symbol);
             if (sym == sym_left_brace) {
-                fork_and_switch_function_state(sfc);
                 new_scope(sfc);
                 sym = decode_new_block(sfc, sym, symbol);
             } else {
@@ -661,8 +670,6 @@ peak_else:
             }
             goto peak_else;
         }
-
-        fork_and_switch_function_state(sfc);
 
         if (sym == sym_left_brace) {
             new_scope(sfc);
@@ -672,8 +679,6 @@ peak_else:
         }
     }
 
-    restore_function_state(sfc);
-    join_function_state(sfc);
     pr_debug("if statement end(sym=%d)\n", sym);
 
     return sym;
@@ -1029,6 +1034,16 @@ static struct function *search_function(struct file_info *fi,
     return NULL;
 }
 
+/**
+ * insert_function - Look up or allocate a function metadata record
+ * @fi: File info tracking parsed functions
+ * @obj: Function object descriptor (return type and identifier)
+ *
+ * Checks if the function already exists in fi->func_head, otherwise
+ * allocates and initializes a new struct function entry.
+ *
+ * Return: Pointer to existing or newly created struct function.
+ */
 static struct function *insert_function(struct file_info *fi,
                                         struct object *obj)
 {
@@ -1045,8 +1060,6 @@ static struct function *insert_function(struct file_info *fi,
     list_init(&func->func_scope_head);
     copy_object(&func->object, obj);
     list_init(&func->parameter_head);
-    func->nr_state = 0;
-    list_init(&func->state_head);
     list_add_tail(&func->node, &fi->func_head);
 
     return func;
@@ -1095,7 +1108,6 @@ again:
 
     /* Function */
     sfc->function = insert_function(sfc->fi, &obj);
-    sfc->real_function = sfc->function;
 
     if (sym == sym_left_paren) {
         /* parse the function paramters */
