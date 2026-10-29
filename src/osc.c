@@ -2,6 +2,11 @@
 #include <osc/compiler.h>
 #include <osc/list.h>
 #include <osc/debug.h>
+#include <osc/context.h>
+#include <osc/token.h>
+#include <osc/ast.h>
+#include <osc/cfg.h>
+#include <osc/check_ownership.h>
 #include <unistd.h>
 #include <getopt.h>
 #include <string.h>
@@ -18,10 +23,15 @@ struct osc_data {
     char include_dir[MAX_DIR_LEN];
     char compiler[MAX_COMPILER_LEN];
     int no_preprocessor;
+    enum osc_mode mode;
+    int dump_ast;
+    int dump_cfg;
+    int legacy_parser;
 };
 
 static struct osc_data osc_data = {
     .compiler = "gcc",
+    .mode = OSC_MODE_AUTO,
 };
 
 static void osc_preprocessor(struct osc_data *data, struct file_info *fi)
@@ -112,9 +122,21 @@ static void osc_getfile(struct osc_data *data, int argc, char *argv[])
 
 static void osc_getopt(struct osc_data *data, int argc, char *argv[])
 {
+    static const struct option long_options[] = {
+        { "no-preprocessor", no_argument, 0, 'P' },
+        { "compiler", required_argument, 0, 'C' },
+        { "include", required_argument, 0, 'I' },
+        { "mode", required_argument, 0, 'm' },
+        { "dump-ast", no_argument, 0, 1001 },
+        { "dump-cfg", no_argument, 0, 1002 },
+        { "legacy", no_argument, 0, 1003 },
+        { "help", no_argument, 0, 'h' },
+        { 0, 0, 0, 0 }
+    };
     int opt;
 
-    while ((opt = getopt(argc, argv, "PC:I:")) != -1) {
+    while ((opt = getopt_long(argc, argv, "PC:I:m:h", long_options, NULL)) !=
+           -1) {
         switch (opt) {
         case 'P':
             data->no_preprocessor = 1;
@@ -127,12 +149,154 @@ static void osc_getopt(struct osc_data *data, int argc, char *argv[])
             strncpy(data->include_dir, optarg, strlen(optarg));
             data->include_dir[MAX_DIR_LEN - 1] = '\0';
             break;
+        case 'm':
+            if (!strcmp(optarg, "kernel")) {
+                data->mode = OSC_MODE_KERNEL;
+            } else if (!strcmp(optarg, "osc")) {
+                data->mode = OSC_MODE_OSC;
+            } else if (!strcmp(optarg, "auto")) {
+                data->mode = OSC_MODE_AUTO;
+            } else {
+                pr_err("Invalid mode '%s': expected auto, kernel, or osc\n",
+                       optarg);
+                exit(EXIT_FAILURE);
+            }
+            break;
+        case 1001:
+            data->dump_ast = 1;
+            break;
+        case 1002:
+            data->dump_cfg = 1;
+            break;
+        case 1003:
+            data->legacy_parser = 1;
+            break;
+        case 'h':
         default:
-            pr_err("Usage: %s [...] -P -C <compiler> -I <directory>\n",
-                   argv[0]);
+            print("Usage: %s [options] <files.c>...\n", argv[0]);
+            print("Options:\n");
+            print("  -P, --no-preprocessor   Disable external preprocessor\n");
+            print("  -C, --compiler <prog>   External preprocessor binary\n");
+            print("  -I, --include <dir>     Include directory\n");
+            print(
+                "  -m, --mode <mode>       Verification mode: auto (default), "
+                "kernel, osc\n");
+            print("  --dump-ast              Pretty-print parsed C11 AST\n");
+            print(
+                "  --dump-cfg              Dump linearized CFG instructions\n");
+            print("  --legacy                Run legacy single-pass parser "
+                  "only\n");
+            if (opt == 'h')
+                exit(EXIT_SUCCESS);
             BUG_ON(1, "Invalid option(s)");
         }
     }
+}
+
+/**
+ * tu_has_osc_attrs - Check whether translation unit contains OSC ownership attributes
+ * @tu: Target AST translation unit
+ *
+ * Return: True if any declaration or parameter possesses __mut, __brw, or __clone.
+ */
+static bool tu_has_osc_attrs(struct ast_translation_unit *tu)
+{
+    struct ast_decl *decl = NULL;
+    struct ast_decl *param = NULL;
+
+    if (!tu)
+        return false;
+
+    list_for_each_entry (decl, &tu->decls, node) {
+        if (decl->type &&
+            (decl->type->osc_attrs &
+             (ATTR_FLAGS_MUT | ATTR_FLAGS_BRW | ATTR_FLAGS_CLONE)))
+            return true;
+
+        if (decl->type && decl->type->is_function) {
+            list_for_each_entry (param, &decl->type->params, node) {
+                if (param->type &&
+                    (param->type->osc_attrs &
+                     (ATTR_FLAGS_MUT | ATTR_FLAGS_BRW | ATTR_FLAGS_CLONE)))
+                    return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+/**
+ * parser_run_pipeline - Execute the 3-phase semantic AST, CFG, and Checker pipeline
+ * @fi: Source file metadata
+ * @data: Global driver configuration
+ *
+ * Return: Number of diagnostic errors encountered, or negative errno on failure.
+ */
+static int parser_run_pipeline(struct file_info *fi, struct osc_data *data)
+{
+    struct osc_context ctx;
+    struct token_stream ts;
+    struct ast_translation_unit *tu = NULL;
+    struct list_head cfg_funcs;
+    struct cfg_function *fn = NULL;
+    const struct osc_checker *selected_checker = NULL;
+    enum osc_mode mode;
+    FILE *f = NULL;
+    int errors = 0;
+
+    if (!fi || !data)
+        return -EINVAL;
+
+    mode = data->mode;
+    osc_context_init(&ctx, fi, mode);
+
+    f = fopen(fi->generated_name, "r");
+    if (!f) {
+        pr_err("Failed to open generated file: %s\n", fi->generated_name);
+        osc_context_destroy(&ctx);
+        return -ENOENT;
+    }
+
+    token_stream_init(&ts, &ctx);
+    token_stream_tokenize_file(&ts, f, fi->generated_name);
+    fclose(f);
+
+    tu = parse_translation_unit(&ts);
+    if (!tu) {
+        osc_context_destroy(&ctx);
+        return -EINVAL;
+    }
+
+    if (data->dump_ast)
+        ast_dump_translation_unit(tu, stdout);
+
+    list_init(&cfg_funcs);
+    linearize_translation_unit(&ctx, tu, &cfg_funcs);
+
+    if (mode == OSC_MODE_OSC) {
+        selected_checker = &checker_osc_attr;
+    } else if (mode == OSC_MODE_KERNEL) {
+        selected_checker = &checker_linux_resource;
+    } else {
+        if (tu_has_osc_attrs(tu))
+            selected_checker = &checker_osc_attr;
+        else
+            selected_checker = &checker_linux_resource;
+    }
+
+    list_for_each_entry (fn, &cfg_funcs, node) {
+        if (data->dump_cfg)
+            cfg_dump_text(fn, stdout);
+
+        if (selected_checker)
+            run_dataflow_analysis(&ctx, fn, selected_checker);
+    }
+
+    errors = ctx.error_count;
+    osc_context_destroy(&ctx);
+
+    return errors;
 }
 
 int main(int argc, char *argv[])
@@ -146,7 +310,12 @@ int main(int argc, char *argv[])
     list_for_each (&osc_data.file_head) {
         struct file_info *fi = container_of(curr, struct file_info, node);
         print("OSC Analyzes file: %s\n", fi->full_name);
-        parser(fi);
+        if (osc_data.legacy_parser) {
+            parser(fi);
+        } else {
+            parser_run_pipeline(fi, &osc_data);
+            parser(fi);
+        }
     }
 
     symbol_id_container_release();
