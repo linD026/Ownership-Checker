@@ -219,6 +219,7 @@ struct ast_stmt {
         struct {
             struct list_head stmts; /* List of struct ast_stmt */
             struct list_head decls; /* List of struct ast_decl declared */
+            struct osc_span end_span; /* Source coordinates of closing '}' */
         };
 
         /* STMT_IF */

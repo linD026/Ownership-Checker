@@ -50,6 +50,7 @@ static void osc_attr_transfer(struct osc_context *ctx, struct instruction *insn,
     struct ast_decl *param = NULL;
     struct cfg_arg_node *arg = NULL;
     struct dataflow_var_state *v = NULL;
+    struct dataflow_var_state *v_src = NULL;
     size_t arg_idx = 0;
     bool is_mut_param = false;
 
@@ -77,20 +78,19 @@ static void osc_attr_transfer(struct osc_context *ctx, struct instruction *insn,
                 /* Dereference store: *decl = ... */
                 if (decl->type && (decl->type->osc_attrs & ATTR_FLAGS_BRW) &&
                     !(decl->type->osc_attrs & ATTR_FLAGS_MUT)) {
-                    osc_report_span(ctx, insn->span,
-                                    "Don't write to the borrowed object");
+                    osc_report_diagnostic(
+                        ctx, insn->span, "Don't write to the borrowed object",
+                        NULL, (struct osc_span){ 0 },
+                        insn->bb ? insn->bb->func : NULL, decl);
                 }
                 if (v && v->state == VAR_STATE_DROPPED) {
-                    osc_report_span(ctx, insn->span,
-                                    "Don't write to the dropped object");
+                    osc_report_diagnostic(
+                        ctx, insn->span, "Don't write to the dropped object",
+                        "Dropped at", v->drop_span,
+                        insn->bb ? insn->bb->func : NULL, decl);
                 }
             } else {
                 /* Pointer or value assignment: decl = ... */
-                if (v && v->state == VAR_STATE_DROPPED) {
-                    osc_report_span(ctx, insn->span,
-                                    "Don't write to the dropped object");
-                }
-
                 if (insn->src1.kind == CFG_OPR_CONST &&
                     insn->src1.const_val == 0) {
                     /* Disarming / clearing pointer: decl = NULL */
@@ -100,6 +100,14 @@ static void osc_attr_transfer(struct osc_context *ctx, struct instruction *insn,
                 } else if (insn->src1.kind == CFG_OPR_VAR &&
                            insn->src1.var_decl) {
                     /* Moving ownership from src to decl */
+                    v_src = dataflow_state_get_var(state, insn->src1.var_decl);
+                    if (v_src && v_src->state == VAR_STATE_DROPPED) {
+                        osc_report_diagnostic(
+                            ctx, insn->span,
+                            "Don't write to the dropped object", "Dropped at",
+                            v_src->drop_span, insn->bb ? insn->bb->func : NULL,
+                            insn->src1.var_decl);
+                    }
                     if (insn->src1.var_decl->type &&
                         (insn->src1.var_decl->type->osc_attrs &
                          ATTR_FLAGS_MUT)) {
@@ -171,11 +179,16 @@ static void osc_attr_transfer(struct osc_context *ctx, struct instruction *insn,
 
                 if (is_mut_param) {
                     if (v && v->state == VAR_STATE_DROPPED) {
-                        osc_report_span(ctx, insn->span,
-                                        "Don't write to the dropped object");
+                        osc_report_diagnostic(
+                            ctx, insn->span,
+                            "Don't write to the dropped object", "Dropped at",
+                            v->drop_span, insn->bb ? insn->bb->func : NULL,
+                            decl);
                     } else if (v && v->state == VAR_STATE_BORROWED) {
-                        osc_report_span(ctx, insn->span,
-                                        "Cannot move borrowed object");
+                        osc_report_diagnostic(
+                            ctx, insn->span, "Cannot move borrowed object",
+                            NULL, (struct osc_span){ 0 },
+                            insn->bb ? insn->bb->func : NULL, decl);
                     }
                     dataflow_state_set_var(state, decl, VAR_STATE_DROPPED,
                                            insn->span);
@@ -198,8 +211,10 @@ static void osc_attr_transfer(struct osc_context *ctx, struct instruction *insn,
             if (decl->type && (decl->type->osc_attrs & ATTR_FLAGS_MUT)) {
                 v = dataflow_state_get_var(state, decl);
                 if (v && v->state == VAR_STATE_SET) {
-                    osc_report_span(ctx, decl->span,
-                                    "Should release the end-of-life object");
+                    osc_report_diagnostic(
+                        ctx, insn->span,
+                        "Should release the end-of-life object", "Set at",
+                        v->set_span, insn->bb ? insn->bb->func : NULL, decl);
                 }
             }
         }
@@ -211,16 +226,22 @@ static void osc_attr_transfer(struct osc_context *ctx, struct instruction *insn,
             v = dataflow_state_get_var(state, decl);
 
             if (decl->type && (decl->type->osc_attrs & ATTR_FLAGS_BRW)) {
-                osc_report_span(
+                osc_report_diagnostic(
                     ctx, insn->span,
-                    "Return the borrowed object which doesn't belong to this function");
+                    "Return the borrowed object which doesn't belong to this function",
+                    NULL, (struct osc_span){ 0 },
+                    insn->bb ? insn->bb->func : NULL, decl);
             } else if (v && v->state == VAR_STATE_BORROWED) {
-                osc_report_span(
+                osc_report_diagnostic(
                     ctx, insn->span,
-                    "Return the borrowed object which doesn't belong to this function");
+                    "Return the borrowed object which doesn't belong to this function",
+                    NULL, (struct osc_span){ 0 },
+                    insn->bb ? insn->bb->func : NULL, decl);
             }
             if (v && v->state == VAR_STATE_DROPPED) {
-                osc_report_span(ctx, insn->span, "Return the dropped object");
+                osc_report_diagnostic(
+                    ctx, insn->span, "Return the dropped object", "Dropped at",
+                    v->drop_span, insn->bb ? insn->bb->func : NULL, decl);
             }
             if (decl->type && (decl->type->osc_attrs & ATTR_FLAGS_MUT)) {
                 dataflow_state_set_var(state, decl, VAR_STATE_DROPPED,
@@ -252,14 +273,27 @@ static void osc_attr_join(struct dataflow_state *dst,
         v_dst = dataflow_state_get_var(dst, v_src->decl);
         if (!v_dst) {
             dataflow_state_set_var(dst, v_src->decl, v_src->state,
-                                   v_src->set_span);
+                                   (v_src->state == VAR_STATE_DROPPED) ?
+                                       v_src->drop_span :
+                                       v_src->set_span);
+            v_dst = dataflow_state_get_var(dst, v_src->decl);
+            if (v_dst) {
+                v_dst->set_span = v_src->set_span;
+                v_dst->drop_span = v_src->drop_span;
+            }
         } else if (v_dst->state != v_src->state) {
             /* If dropped along any path, mark dropped (dropped dominates) */
             if (v_src->state == VAR_STATE_DROPPED ||
                 v_dst->state == VAR_STATE_DROPPED) {
+                if (v_dst->state != VAR_STATE_DROPPED &&
+                    v_src->state == VAR_STATE_DROPPED)
+                    v_dst->drop_span = v_src->drop_span;
                 v_dst->state = VAR_STATE_DROPPED;
             } else if (v_src->state == VAR_STATE_SET ||
                        v_dst->state == VAR_STATE_SET) {
+                if (v_dst->state != VAR_STATE_SET &&
+                    v_src->state == VAR_STATE_SET)
+                    v_dst->set_span = v_src->set_span;
                 v_dst->state = VAR_STATE_SET;
             } else if (v_src->state == VAR_STATE_BORROWED ||
                        v_dst->state == VAR_STATE_BORROWED) {
@@ -281,6 +315,7 @@ static void osc_attr_check_block_exit(struct osc_context *ctx,
 {
     struct ast_decl *param = NULL;
     struct dataflow_var_state *v = NULL;
+    struct osc_span rep_span = { 0 };
 
     if (!ctx || !bb || !state || !bb->func)
         return;
@@ -293,9 +328,13 @@ static void osc_attr_check_block_exit(struct osc_context *ctx,
                 if (param->type && (param->type->osc_attrs & ATTR_FLAGS_MUT)) {
                     v = dataflow_state_get_var(state, param);
                     if (v && v->state == VAR_STATE_SET) {
-                        osc_report_span(
-                            ctx, param->span,
-                            "Should release the end-of-life object");
+                        rep_span = (bb->func->exit_span.line > 0) ?
+                                       bb->func->exit_span :
+                                       param->span;
+                        osc_report_diagnostic(
+                            ctx, rep_span,
+                            "Should release the end-of-life object", "Set at",
+                            v->set_span, bb->func, param);
                     }
                 }
             }

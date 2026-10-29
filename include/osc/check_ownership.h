@@ -78,6 +78,11 @@ int run_dataflow_analysis(struct osc_context *ctx, struct cfg_function *fn,
 struct ast_decl *osc_find_decl(struct osc_context *ctx, struct symbol *sym);
 
 /* Report Helper functions */
+void osc_report_diagnostic(struct osc_context *ctx,
+                           struct osc_span primary_span, const char *msg,
+                           const char *secondary_note,
+                           struct osc_span secondary_span,
+                           struct cfg_function *fn, struct ast_decl *decl);
 void osc_report_span(struct osc_context *ctx, struct osc_span span,
                      const char *msg);
 

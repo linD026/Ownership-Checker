@@ -500,15 +500,27 @@ int run_dataflow_analysis(struct osc_context *ctx, struct cfg_function *fn,
 }
 
 /**
- * osc_report_span - Diagnostic reporter for semantic ownership violations
+ * osc_report_diagnostic - Diagnostic reporter for semantic ownership violations
  * @ctx: Active compilation context
- * @span: Source coordinates of the violation
+ * @primary_span: Source coordinates of the violation
  * @msg: Description of violation
+ * @secondary_note: Optional secondary note label (e.g. "Dropped at", "Set at")
+ * @secondary_span: Source coordinates of secondary lifecycle event
+ * @fn: Enclosing CFG function context
+ * @decl: Target AST variable declaration
  */
-void osc_report_span(struct osc_context *ctx, struct osc_span span,
-                     const char *msg)
+void osc_report_diagnostic(struct osc_context *ctx,
+                           struct osc_span primary_span, const char *msg,
+                           const char *secondary_note,
+                           struct osc_span secondary_span,
+                           struct cfg_function *fn, struct ast_decl *decl)
 {
+    char primary_buf[MAX_BUFFER_LEN] = { 0 };
+    char secondary_buf[MAX_BUFFER_LEN] = { 0 };
     const char *fname = "<input>";
+    unsigned int primary_offset = 0;
+    unsigned int secondary_offset = 0;
+    int ret = 0;
 
     if (!ctx)
         return;
@@ -518,8 +530,48 @@ void osc_report_span(struct osc_context *ctx, struct osc_span span,
     if (ctx->fi && ctx->fi->name[0])
         fname = ctx->fi->name;
 
-    print("\e[1m\e[31mOSC ERROR\e[0m\e[0m: \e[1m%s\e[0m\n", msg);
-    print("    \e[36m|->\e[0m %s:%zu:%u\n", fname, span.line, span.col);
+    ret = osc_get_source_line(ctx, primary_span.line, primary_buf,
+                              sizeof(primary_buf));
+    if (ret == 0 && primary_buf[0]) {
+        primary_offset = (primary_span.col > 0) ? (primary_span.col - 1) : 0;
+        bad_template(0, fname, (unsigned int)primary_span.line, primary_buf,
+                     primary_offset, NULL, msg);
+    } else {
+        print("\e[1m\e[31mOSC ERROR\e[0m\e[0m: \e[1m%s\e[0m\n", msg);
+        print("    \e[36m|->\e[0m %s:%zu:%u\n", fname, primary_span.line,
+              primary_span.col);
+    }
+
+    if (secondary_note && secondary_span.line > 0) {
+        ret = osc_get_source_line(ctx, secondary_span.line, secondary_buf,
+                                  sizeof(secondary_buf));
+        if (ret == 0 && secondary_buf[0]) {
+            secondary_offset =
+                (secondary_span.col > 0) ? (secondary_span.col - 1) : 0;
+            bad_template(1, fname, (unsigned int)secondary_span.line,
+                         secondary_buf, secondary_offset, secondary_note, NULL);
+        } else {
+            print("    \e[36m+->\e[0m %s %s:%zu:%u\n", secondary_note, fname,
+                  secondary_span.line, secondary_span.col);
+        }
+    }
+
+    if (decl)
+        osc_dump_decl_note(fn, decl);
+}
+
+/**
+ * osc_report_span - Diagnostic reporter for semantic ownership violations
+ * @ctx: Active compilation context
+ * @span: Source coordinates of the violation
+ * @msg: Description of violation
+ */
+void osc_report_span(struct osc_context *ctx, struct osc_span span,
+                     const char *msg)
+{
+    struct osc_span null_span = { 0 };
+
+    osc_report_diagnostic(ctx, span, msg, NULL, null_span, NULL, NULL);
 }
 
 /**

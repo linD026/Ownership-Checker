@@ -125,6 +125,7 @@ struct basic_block {
 struct cfg_function {
     struct symbol *name;
     struct ast_decl *decl; /* Original AST function declaration */
+    struct osc_span exit_span; /* Closing brace '}' source span */
 
     struct basic_block *entry_bb;
     struct basic_block *exit_bb;

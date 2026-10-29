@@ -528,6 +528,7 @@ static struct cfg_operand linearize_expr(struct linearize_context *lctx,
         insn->target = temp;
         if (expr->callee && expr->callee->expr_kind == EXPR_IDENT)
             insn->callee_sym = expr->callee->id;
+        insn->is_container_of = expr->is_container_of;
 
         list_for_each_entry (arg, &expr->args, node) {
             arg_op = linearize_expr(lctx, arg);
@@ -557,7 +558,6 @@ static struct cfg_operand linearize_expr(struct linearize_context *lctx,
         insn->target = temp;
         insn->src1 = left_op;
         insn->container_member = expr->member;
-        insn->is_container_of = expr->is_container_of;
         cfg_bb_add_insn(lctx->curr_bb, insn);
         return temp;
 
@@ -651,6 +651,7 @@ static void linearize_stmt(struct linearize_context *lctx,
     struct cfg_operand cond_op = { 0 };
     struct cfg_operand ret_op = { 0 };
     struct cfg_operand init_op = { 0 };
+    struct osc_span scope_span = { 0 };
 
     if (!stmt || !lctx->curr_bb)
         return;
@@ -671,10 +672,12 @@ static void linearize_stmt(struct linearize_context *lctx,
         /* Normal scope fallthrough exits emit cleanups and scope boundaries */
         if (!bb_has_terminator(lctx->curr_bb)) {
             linearize_emit_scope_cleanups(lctx, new_scope->prev);
+            scope_span = (stmt->end_span.line > 0) ? stmt->end_span :
+                                                     lctx->fn->decl->span;
             list_for_each_entry (v, &new_scope->vars, node) {
                 if (v->decl && lctx->curr_bb &&
                     !bb_has_terminator(lctx->curr_bb)) {
-                    insn = cfg_insn_new(lctx->fn, OP_SCOPE_END, v->decl->span);
+                    insn = cfg_insn_new(lctx->fn, OP_SCOPE_END, scope_span);
                     insn->target = cfg_op_var(v->decl);
                     cfg_bb_add_insn(lctx->curr_bb, insn);
                 }
@@ -1022,13 +1025,18 @@ struct cfg_function *linearize_function(struct osc_context *ctx,
     }
 
     /* Linearize function body statements */
-    if (fn_decl->body)
+    if (fn_decl->body) {
         linearize_stmt(&lctx, fn_decl->body);
+        if (fn_decl->body->stmt_kind == STMT_COMPOUND)
+            fn->exit_span = fn_decl->body->end_span;
+    }
 
     /* If execution falls through to end, link to exit block */
     if (lctx.curr_bb && !bb_has_terminator(lctx.curr_bb)) {
         linearize_emit_scope_cleanups(&lctx, NULL);
-        insn = cfg_insn_new(fn, OP_RET, fn_decl->span);
+        insn = cfg_insn_new(fn, OP_RET,
+                            (fn->exit_span.line > 0) ? fn->exit_span :
+                                                       fn_decl->span);
         cfg_bb_add_insn(lctx.curr_bb, insn);
         cfg_add_edge(fn, lctx.curr_bb, fn->exit_bb);
     }

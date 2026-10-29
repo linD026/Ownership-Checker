@@ -547,6 +547,9 @@ static int __get_token(struct scan_file_control *sfc, struct symbol **id)
         if (skip_comments(sfc))
             return -ENODATA;
 
+        sfc->tok_line = sfc->line;
+        sfc->tok_offset = sfc->offset;
+
         /* check the keyword */
         sym = check_symbol_table(sfc, id, &len);
         if (sym != sym_dump)
@@ -827,11 +830,11 @@ int token_stream_tokenize_file(struct token_stream *ts, FILE *fp,
     token_init(&sfc);
 
     while (1) {
-        line = sfc.line;
-        col = sfc.offset + 1;
         token_sym = get_token(&sfc, &sym);
         if (token_sym == -ENODATA)
             break;
+        line = sfc.tok_line;
+        col = sfc.tok_offset + 1;
 
         /* Classify numeric literals (integers and floats) */
         if (token_sym == sym_id && sym && sym->name &&

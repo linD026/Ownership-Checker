@@ -300,4 +300,11 @@ struct cfg_function;
 void cfg_dump_text(struct cfg_function *fn, FILE *out);
 void cfg_dump_dot(struct cfg_function *fn, FILE *out);
 
+/* Diagnostic Source & Declaration Note Formatters */
+struct osc_context;
+
+int osc_get_source_line(struct osc_context *ctx, unsigned long target_line,
+                        char *buf, size_t buf_size);
+void osc_dump_decl_note(struct cfg_function *fn, struct ast_decl *decl);
+
 #endif /* __OSC_DEBUG_H__ */

@@ -2,6 +2,7 @@
 #include <osc/check_list.h>
 #include <osc/compiler.h>
 #include <osc/debug.h>
+#include <osc/context.h>
 #include <osc/ast.h>
 #include <osc/cfg.h>
 
@@ -785,4 +786,123 @@ void cfg_dump_dot(struct cfg_function *fn, FILE *out)
     }
 
     fprintf(out, "}\n");
+}
+
+/**
+ * osc_get_source_line - Read a line from the source file
+ * @ctx: Active compilation context
+ * @target_line: 1-indexed target line number
+ * @buf: Output buffer for line contents
+ * @buf_size: Size of output buffer
+ *
+ * Return: 0 on success, negative errno on failure.
+ */
+int osc_get_source_line(struct osc_context *ctx, unsigned long target_line,
+                        char *buf, size_t buf_size)
+{
+    FILE *fp = NULL;
+    const char *candidates[4] = { 0 };
+    unsigned long cur_line = 1;
+    size_t len = 0;
+    int i = 0;
+
+    if (!buf || buf_size == 0 || target_line == 0)
+        return -EINVAL;
+
+    buf[0] = '\0';
+
+    if (ctx && ctx->fi) {
+        candidates[0] = ctx->fi->full_name[0] ? ctx->fi->full_name : NULL;
+        candidates[1] = ctx->fi->name[0] ? ctx->fi->name : NULL;
+        candidates[2] =
+            ctx->fi->generated_name[0] ? ctx->fi->generated_name : NULL;
+    }
+
+    for (i = 0; i < 3; i++) {
+        if (!candidates[i])
+            continue;
+        fp = fopen(candidates[i], "r");
+        if (fp)
+            break;
+    }
+
+    if (!fp)
+        return -ENOENT;
+
+    while (fgets(buf, (int)buf_size, fp)) {
+        if (cur_line == target_line) {
+            len = strlen(buf);
+            if (len > 0 && buf[len - 1] != '\n') {
+                if (len + 1 < buf_size) {
+                    buf[len] = '\n';
+                    buf[len + 1] = '\0';
+                }
+            }
+            fclose(fp);
+            return 0;
+        }
+        cur_line++;
+    }
+
+    fclose(fp);
+    return -ERANGE;
+}
+
+/**
+ * osc_dump_decl_note - Emit declaration diagnostic note for an AST declaration
+ * @fn: Enclosing CFG function context
+ * @decl: Target AST variable declaration
+ */
+void osc_dump_decl_note(struct cfg_function *fn, struct ast_decl *decl)
+{
+    const char *func_name = "<global>";
+    const char *place = "scope";
+    struct ast_decl *p = NULL;
+    int i = 0;
+
+    if (!decl)
+        return;
+
+    if (fn && fn->decl && fn->decl->id && fn->decl->id->name)
+        func_name = fn->decl->id->name;
+
+    if (fn && fn->decl && fn->decl->type && fn->decl->type->is_function) {
+        list_for_each_entry (p, &fn->decl->type->params, node) {
+            if (p == decl || (p->id && decl->id && p->id == decl->id)) {
+                place = "argument";
+                break;
+            }
+        }
+    }
+
+    print("OSC NOTE: The object is declared as %s %s: ", func_name, place);
+
+    if (decl->storage_class != sym_dump && decl->storage_class != 0)
+        print("%s ", token_name(decl->storage_class));
+
+    if (decl->type) {
+        if (decl->type->base_type == sym_struct) {
+            print("struct ");
+            if (decl->type->tag && decl->type->tag->name)
+                print("%s ", decl->type->tag->name);
+        } else if (decl->type->base_type != sym_dump &&
+                   decl->type->base_type != 0) {
+            print("%s ", token_name(decl->type->base_type));
+        }
+
+        if (decl->type->osc_attrs & ATTR_FLAGS_BRW)
+            print("__brw ");
+        if (decl->type->osc_attrs & ATTR_FLAGS_CLONE)
+            print("__clone ");
+        if (decl->type->osc_attrs & ATTR_FLAGS_MUT)
+            print("__mut ");
+
+        for (i = 0; i < (int)decl->type->ptr_depth; i++)
+            print("*");
+    }
+
+    if (decl->id && decl->id->name)
+        print("%s", decl->id->name);
+
+    print("\n");
 }

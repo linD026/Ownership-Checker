@@ -123,6 +123,8 @@ struct scan_file_control {
     unsigned int size;
     unsigned int offset;
     unsigned long line;
+    unsigned long tok_line;
+    unsigned int tok_offset;
 
     struct /* peak token info */ {
         unsigned int peak;

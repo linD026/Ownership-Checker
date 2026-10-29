@@ -350,23 +350,32 @@ struct ast_type *parse_type(struct token_stream *ts)
     /* Parse pointers and pointer-level attributes */
     while (1) {
         tok = tok_peek(ts, 0);
-        if (!tok || tok->sym != sym_aster)
+        if (!tok || tok->sym == sym_dump)
             break;
 
-        tok_consume(ts);
-        ptr_depth++;
-
-        /* Check for attributes/qualifiers on pointer */
-        tok = tok_peek(ts, 0);
-        if (tok && tok->sym == sym_attr_mut) {
+        if (tok->sym == sym_aster) {
+            tok_consume(ts);
+            ptr_depth++;
+        } else if (tok->sym == sym_attr_mut) {
             osc_attrs |= ATTR_FLAGS_MUT;
             tok_consume(ts);
-        } else if (tok && tok->sym == sym_attr_brw) {
+        } else if (tok->sym == sym_attr_brw) {
             osc_attrs |= ATTR_FLAGS_BRW;
             tok_consume(ts);
-        } else if (tok && tok->sym == sym_const) {
+        } else if (tok->sym == sym_attr_clone) {
+            osc_attrs |= ATTR_FLAGS_CLONE;
+            tok_consume(ts);
+        } else if (tok->sym == sym_const) {
             qualifiers |= TYPE_QUAL_CONST;
             tok_consume(ts);
+        } else if (tok->sym == sym_volatile) {
+            qualifiers |= TYPE_QUAL_VOLATILE;
+            tok_consume(ts);
+        } else if (tok->sym == sym_restrict) {
+            qualifiers |= TYPE_QUAL_RESTRICT;
+            tok_consume(ts);
+        } else {
+            break;
         }
     }
 
@@ -472,21 +481,32 @@ static struct ast_decl *parse_param_decl(struct token_stream *ts)
     /* Pointers on the parameter declarator */
     while (1) {
         tok = tok_peek(ts, 0);
-        if (!tok || tok->sym != sym_aster)
+        if (!tok || tok->sym == sym_dump)
             break;
-        tok_consume(ts);
-        ptr_depth++;
 
-        tok = tok_peek(ts, 0);
-        if (tok && tok->sym == sym_attr_mut) {
+        if (tok->sym == sym_aster) {
+            tok_consume(ts);
+            ptr_depth++;
+        } else if (tok->sym == sym_attr_mut) {
             osc_attrs |= ATTR_FLAGS_MUT;
             tok_consume(ts);
-        } else if (tok && tok->sym == sym_attr_brw) {
+        } else if (tok->sym == sym_attr_brw) {
             osc_attrs |= ATTR_FLAGS_BRW;
             tok_consume(ts);
-        } else if (tok && tok->sym == sym_const) {
+        } else if (tok->sym == sym_attr_clone) {
+            osc_attrs |= ATTR_FLAGS_CLONE;
+            tok_consume(ts);
+        } else if (tok->sym == sym_const) {
             qualifiers |= TYPE_QUAL_CONST;
             tok_consume(ts);
+        } else if (tok->sym == sym_volatile) {
+            qualifiers |= TYPE_QUAL_VOLATILE;
+            tok_consume(ts);
+        } else if (tok->sym == sym_restrict) {
+            qualifiers |= TYPE_QUAL_RESTRICT;
+            tok_consume(ts);
+        } else {
+            break;
         }
     }
 
@@ -620,21 +640,32 @@ struct list_head *parse_decl_list(struct token_stream *ts,
         /* Pointers on this declarator */
         while (1) {
             tok = tok_peek(ts, 0);
-            if (!tok || tok->sym != sym_aster)
+            if (!tok || tok->sym == sym_dump)
                 break;
-            tok_consume(ts);
-            ptr_depth++;
 
-            tok = tok_peek(ts, 0);
-            if (tok && tok->sym == sym_attr_mut) {
+            if (tok->sym == sym_aster) {
+                tok_consume(ts);
+                ptr_depth++;
+            } else if (tok->sym == sym_attr_mut) {
                 osc_attrs |= ATTR_FLAGS_MUT;
                 tok_consume(ts);
-            } else if (tok && tok->sym == sym_attr_brw) {
+            } else if (tok->sym == sym_attr_brw) {
                 osc_attrs |= ATTR_FLAGS_BRW;
                 tok_consume(ts);
-            } else if (tok && tok->sym == sym_const) {
+            } else if (tok->sym == sym_attr_clone) {
+                osc_attrs |= ATTR_FLAGS_CLONE;
+                tok_consume(ts);
+            } else if (tok->sym == sym_const) {
                 qualifiers |= TYPE_QUAL_CONST;
                 tok_consume(ts);
+            } else if (tok->sym == sym_volatile) {
+                qualifiers |= TYPE_QUAL_VOLATILE;
+                tok_consume(ts);
+            } else if (tok->sym == sym_restrict) {
+                qualifiers |= TYPE_QUAL_RESTRICT;
+                tok_consume(ts);
+            } else {
+                break;
             }
         }
 
@@ -1277,7 +1308,8 @@ struct ast_stmt *parse_stmt_compound(struct token_stream *ts)
 
         /* Exiting compound statement '}' */
         if (tok->sym == sym_right_brace) {
-            tok_consume(ts);
+            tok = tok_consume(ts);
+            scope_stack->compound->end_span = tok->span;
             if (scope_stack->prev) {
                 list_add_tail(&scope_stack->compound->node,
                               &scope_stack->prev->compound->stmts);
