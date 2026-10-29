@@ -189,10 +189,34 @@ static void osc_getopt(struct osc_data *data, int argc, char *argv[])
 }
 
 /**
+ * type_has_osc_attrs - Check whether an AST type or its members possess OSC attributes
+ * @type: Target AST type
+ *
+ * Return: True if type or any composite member possesses __mut, __brw, or __clone.
+ */
+static bool type_has_osc_attrs(struct ast_type *type)
+{
+    struct ast_decl *m = NULL;
+
+    if (!type)
+        return false;
+
+    if (type->osc_attrs & (ATTR_FLAGS_MUT | ATTR_FLAGS_BRW | ATTR_FLAGS_CLONE))
+        return true;
+
+    list_for_each_entry (m, &type->members, node) {
+        if (m->type && type_has_osc_attrs(m->type))
+            return true;
+    }
+
+    return false;
+}
+
+/**
  * tu_has_osc_attrs - Check whether translation unit contains OSC ownership attributes
  * @tu: Target AST translation unit
  *
- * Return: True if any declaration or parameter possesses __mut, __brw, or __clone.
+ * Return: True if any declaration, struct member, or parameter possesses __mut, __brw, or __clone.
  */
 static bool tu_has_osc_attrs(struct ast_translation_unit *tu)
 {
@@ -203,16 +227,12 @@ static bool tu_has_osc_attrs(struct ast_translation_unit *tu)
         return false;
 
     list_for_each_entry (decl, &tu->decls, node) {
-        if (decl->type &&
-            (decl->type->osc_attrs &
-             (ATTR_FLAGS_MUT | ATTR_FLAGS_BRW | ATTR_FLAGS_CLONE)))
+        if (decl->type && type_has_osc_attrs(decl->type))
             return true;
 
         if (decl->type && decl->type->is_function) {
             list_for_each_entry (param, &decl->type->params, node) {
-                if (param->type &&
-                    (param->type->osc_attrs &
-                     (ATTR_FLAGS_MUT | ATTR_FLAGS_BRW | ATTR_FLAGS_CLONE)))
+                if (param->type && type_has_osc_attrs(param->type))
                     return true;
             }
         }

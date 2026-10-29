@@ -20,6 +20,8 @@ enum dataflow_var_val {
 /* Per-Variable Dataflow Fact */
 struct dataflow_var_state {
     struct ast_decl *decl;
+    struct symbol *member; /* NULL for base variable, or member symbol */
+    struct ast_decl *mem_decl; /* Member declaration if member != NULL */
     int state; /* enum dataflow_var_val */
     struct osc_span set_span;
     struct osc_span drop_span;
@@ -64,8 +66,15 @@ struct dataflow_state *dataflow_state_clone(struct osc_context *ctx,
                                             const struct dataflow_state *src);
 struct dataflow_var_state *dataflow_state_get_var(struct dataflow_state *state,
                                                   struct ast_decl *decl);
+struct dataflow_var_state *
+dataflow_state_get_member(struct dataflow_state *state, struct ast_decl *decl,
+                          struct symbol *member);
 void dataflow_state_set_var(struct dataflow_state *state, struct ast_decl *decl,
                             int val, struct osc_span span);
+void dataflow_state_set_member(struct dataflow_state *state,
+                               struct ast_decl *decl, struct symbol *member,
+                               struct ast_decl *mem_decl, int val,
+                               struct osc_span span);
 bool dataflow_state_equal(const struct dataflow_state *s1,
                           const struct dataflow_state *s2);
 
@@ -76,6 +85,9 @@ int run_dataflow_analysis(struct osc_context *ctx, struct cfg_function *fn,
 /* General helper functions */
 
 struct ast_decl *osc_find_decl(struct osc_context *ctx, struct symbol *sym);
+struct ast_decl *osc_find_struct_member(struct osc_context *ctx,
+                                        struct ast_type *type,
+                                        struct symbol *member_sym);
 
 /* Report Helper functions */
 void osc_report_diagnostic(struct osc_context *ctx,

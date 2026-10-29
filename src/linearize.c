@@ -482,11 +482,32 @@ static struct cfg_operand linearize_expr(struct linearize_context *lctx,
         right_op = linearize_expr(lctx, expr->right);
         if (expr->left && expr->left->expr_kind == EXPR_UNARY &&
             expr->left->unary_op == sym_aster) {
+            if (expr->left->operand &&
+                expr->left->operand->expr_kind == EXPR_MEMBER) {
+                left_op = linearize_expr(lctx, expr->left->operand->object);
+                insn = cfg_insn_new(lctx->fn, OP_STORE, expr->span);
+                insn->target = left_op;
+                insn->src1 = right_op;
+                insn->container_member = expr->left->operand->member;
+                insn->is_deref = true;
+                cfg_bb_add_insn(lctx->curr_bb, insn);
+                return left_op;
+            }
             left_op = linearize_expr(lctx, expr->left->operand);
             insn = cfg_insn_new(lctx->fn, OP_STORE, expr->span);
             insn->target = left_op;
             insn->src1 = right_op;
             insn->is_deref = true;
+            cfg_bb_add_insn(lctx->curr_bb, insn);
+            return left_op;
+        }
+        if (expr->left && expr->left->expr_kind == EXPR_MEMBER) {
+            left_op = linearize_expr(lctx, expr->left->object);
+            insn = cfg_insn_new(lctx->fn, OP_STORE, expr->span);
+            insn->target = left_op;
+            insn->src1 = right_op;
+            insn->container_member = expr->left->member;
+            insn->is_deref = false;
             cfg_bb_add_insn(lctx->curr_bb, insn);
             return left_op;
         }
@@ -542,6 +563,11 @@ static struct cfg_operand linearize_expr(struct linearize_context *lctx,
                     proj_var =
                         linearize_find_var(lctx, arg->operand->object->id);
                     proj_mem = arg->operand->member;
+                }
+            } else if (arg->expr_kind == EXPR_MEMBER) {
+                if (arg->object && arg->object->expr_kind == EXPR_IDENT) {
+                    proj_var = linearize_find_var(lctx, arg->object->id);
+                    proj_mem = arg->member;
                 }
             }
             cfg_insn_add_arg_proj(lctx->fn, insn, arg_op, proj_var, proj_mem);

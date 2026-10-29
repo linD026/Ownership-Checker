@@ -289,6 +289,8 @@ struct dataflow_state *dataflow_state_clone(struct osc_context *ctx,
         BUG_ON(!new_var, "arena zalloc failed for cloned dataflow_var_state");
 
         new_var->decl = var->decl;
+        new_var->member = var->member;
+        new_var->mem_decl = var->mem_decl;
         new_var->state = var->state;
         new_var->set_span = var->set_span;
         new_var->drop_span = var->drop_span;
@@ -316,7 +318,32 @@ struct dataflow_var_state *dataflow_state_get_var(struct dataflow_state *state,
         return NULL;
 
     list_for_each_entry (v, &state->var_states, node) {
-        if (v->decl == decl)
+        if (v->decl == decl && v->member == NULL)
+            return v;
+    }
+
+    return NULL;
+}
+
+/**
+ * dataflow_state_get_member - Lookup the lattice fact for a struct member
+ * @state: Active dataflow state container
+ * @decl: Target base struct variable AST declaration
+ * @member: Target member symbol
+ *
+ * Return: Matching struct dataflow_var_state if present, NULL otherwise.
+ */
+struct dataflow_var_state *
+dataflow_state_get_member(struct dataflow_state *state, struct ast_decl *decl,
+                          struct symbol *member)
+{
+    struct dataflow_var_state *v = NULL;
+
+    if (!state || !decl || !member)
+        return NULL;
+
+    list_for_each_entry (v, &state->var_states, node) {
+        if (v->decl == decl && v->member == member)
             return v;
     }
 
@@ -343,9 +370,51 @@ void dataflow_state_set_var(struct dataflow_state *state, struct ast_decl *decl,
         v = osc_arena_zalloc(&state->ctx->arena, sizeof(*v));
         BUG_ON(!v, "arena zalloc failed for dataflow_var_state");
         v->decl = decl;
+        v->member = NULL;
+        v->mem_decl = NULL;
         list_init(&v->node);
         list_add_tail(&v->node, &state->var_states);
     }
+
+    v->state = val;
+    if (val == VAR_STATE_SET)
+        v->set_span = span;
+    else if (val == VAR_STATE_DROPPED || val == VAR_STATE_ESCAPED)
+        v->drop_span = span;
+}
+
+/**
+ * dataflow_state_set_member - Update or insert a struct member lattice state
+ * @state: Active dataflow state container
+ * @decl: Target base struct variable AST declaration
+ * @member: Target member symbol
+ * @mem_decl: Target member AST declaration
+ * @val: New abstract value state (enum dataflow_var_val)
+ * @span: Source span coordinates associated with the state change
+ */
+void dataflow_state_set_member(struct dataflow_state *state,
+                               struct ast_decl *decl, struct symbol *member,
+                               struct ast_decl *mem_decl, int val,
+                               struct osc_span span)
+{
+    struct dataflow_var_state *v = NULL;
+
+    if (!state || !decl || !member)
+        return;
+
+    v = dataflow_state_get_member(state, decl, member);
+    if (!v) {
+        v = osc_arena_zalloc(&state->ctx->arena, sizeof(*v));
+        BUG_ON(!v, "arena zalloc failed for dataflow_var_state member");
+        v->decl = decl;
+        v->member = member;
+        v->mem_decl = mem_decl;
+        list_init(&v->node);
+        list_add_tail(&v->node, &state->var_states);
+    }
+
+    if (mem_decl)
+        v->mem_decl = mem_decl;
 
     v->state = val;
     if (val == VAR_STATE_SET)
@@ -384,7 +453,11 @@ bool dataflow_state_equal(const struct dataflow_state *s1,
         return false;
 
     list_for_each_entry (v1, &s1->var_states, node) {
-        v2 = dataflow_state_get_var((struct dataflow_state *)s2, v1->decl);
+        if (v1->member)
+            v2 = dataflow_state_get_member((struct dataflow_state *)s2,
+                                           v1->decl, v1->member);
+        else
+            v2 = dataflow_state_get_var((struct dataflow_state *)s2, v1->decl);
         if (!v2 || v2->state != v1->state)
             return false;
     }
@@ -591,6 +664,46 @@ struct ast_decl *osc_find_decl(struct osc_context *ctx, struct symbol *sym)
     list_for_each_entry (decl, &ctx->tu->decls, node) {
         if (decl->id == sym)
             return decl;
+    }
+
+    return NULL;
+}
+
+/**
+ * osc_find_struct_member - Lookup member declaration within a struct type
+ * @ctx: Active compilation context
+ * @type: AST type descriptor of the container
+ * @member_sym: Target member identifier symbol
+ *
+ * Return: Matching struct ast_decl pointer if found, NULL otherwise.
+ */
+struct ast_decl *osc_find_struct_member(struct osc_context *ctx,
+                                        struct ast_type *type,
+                                        struct symbol *member_sym)
+{
+    struct ast_decl *decl = NULL;
+    struct ast_decl *m = NULL;
+
+    if (!type || !member_sym)
+        return NULL;
+
+    /* Check direct members if present */
+    list_for_each_entry (m, &type->members, node) {
+        if (m->id == member_sym)
+            return m;
+    }
+
+    /* If struct has a tag, look for global definition in ctx->tu */
+    if (ctx && ctx->tu && type->tag) {
+        list_for_each_entry (decl, &ctx->tu->decls, node) {
+            if (decl->type && decl->type->tag == type->tag &&
+                !list_empty(&decl->type->members)) {
+                list_for_each_entry (m, &decl->type->members, node) {
+                    if (m->id == member_sym)
+                        return m;
+                }
+            }
+        }
     }
 
     return NULL;
