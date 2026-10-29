@@ -90,12 +90,20 @@ static __always_inline int blank(char ch)
 static __always_inline int bad_get_last_offset(const char *buffer,
                                                unsigned int offset)
 {
-    /*
-     * we manually get the offset of last id symbol.
-     * Otherwise, if we use sfc->offset to get the lcoation it
-     * will be the first offset of next symbol
-     */
-    for (unsigned int i = offset; i >= 0; i--) {
+    size_t len = 0;
+    int i = 0;
+
+    if (!buffer)
+        return 0;
+
+    len = strlen(buffer);
+    if (len == 0)
+        return 0;
+
+    if (offset >= len)
+        offset = len - 1;
+
+    for (i = (int)offset; i >= 0; i--) {
         if (blank(buffer[i]))
             continue;
         /* See the symbol table - one char */
@@ -120,16 +128,20 @@ static __always_inline int bad_get_last_offset(const char *buffer,
             return i;
         }
     }
-    WARN_ON(1, "cannot get last symbol's offset");
-    return -1;
+    return 0;
 }
 static __always_inline void bad_template(int level, const char *file,
                                          unsigned int line, const char *buffer,
                                          unsigned int offset, const char *note,
                                          const char *warning)
 {
-    int last_local = bad_get_last_offset(buffer, offset);
+    int last_local = 0;
     char level_symbol = (level) ? '+' : '|';
+
+    if (!buffer)
+        return;
+
+    last_local = bad_get_last_offset(buffer, offset);
 
     if (warning)
         print("\e[1m\e[31mOSC ERROR\e[0m\e[0m: \e[1m%s\e[0m\n", warning);
